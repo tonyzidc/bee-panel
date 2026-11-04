@@ -88,6 +88,7 @@
             <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
               <tr>
                 <th class="p-4">DOMAIN</th>
+                <th class="p-4">WEB DIRECTORY</th>
                 <th class="p-4">EXTERNAL PORT</th>
                 <th class="p-4">TARGET CONTAINER PORT</th>
                 <th class="p-4">SSL / HTTPS</th>
@@ -96,7 +97,7 @@
             </thead>
             <tbody class="divide-y divide-slate-200 text-slate-700">
               <tr v-if="!domains || domains.length === 0">
-                <td colspan="5" class="p-8 text-center text-slate-400">
+                <td colspan="6" class="p-8 text-center text-slate-400">
                   No domains bound yet. Click "Bind Domain" to route your container traffic.
                 </td>
               </tr>
@@ -105,6 +106,14 @@
                   <a :href="'http://' + d.domain + (d.external_port !== 80 && d.external_port !== 443 ? ':' + d.external_port : '')" target="_blank" class="text-cyan-600 hover:underline">
                     {{ d.domain }}
                   </a>
+                </td>
+                <td class="p-4 font-mono text-[11px] text-slate-600 max-w-xs">
+                  <div class="flex items-center space-x-1.5" :title="d.web_root">
+                    <span class="truncate">{{ d.web_root || ('web/' + d.domain + '/public_html') }}</span>
+                    <button @click="copyText(d.web_root || ('web/' + d.domain + '/public_html'))" title="Copy Web Directory Path" class="text-slate-400 hover:text-slate-700 p-1">
+                      <i class="fa-solid fa-copy text-xs"></i>
+                    </button>
+                  </div>
                 </td>
                 <td class="p-4">
                   <span class="px-2 py-0.5 rounded bg-slate-100 font-mono text-slate-700 border border-slate-200">

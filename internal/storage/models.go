@@ -37,6 +37,7 @@ type DomainMapping struct {
 	SSLCertPath         string    `json:"ssl_cert_path"`
 	SSLKeyPath          string    `json:"ssl_key_path"`
 	SSLExpiryDate       string    `json:"ssl_expiry_date,omitempty"`
+	WebRoot             string    `json:"web_root,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
 }
 

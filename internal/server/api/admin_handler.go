@@ -633,6 +633,19 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure domain webroot directory structure and starter files
+	var homeDir string
+	var uid, gid int
+	if req.TenantID > 0 {
+		if t, err := h.db.GetTenantByID(req.TenantID); err == nil && t != nil {
+			homeDir = t.HomeDir
+			uid = t.UID
+			gid = t.GID
+		}
+	}
+
+	webRoot, _ := provisioner.EnsureDomainWebroot(req.Domain, homeDir, uid, gid, req.TargetContainerPort)
+
 	mapping := &storage.DomainMapping{
 		TenantID:            req.TenantID,
 		Domain:              req.Domain,
@@ -641,6 +654,7 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		EnableSSL:           req.EnableSSL,
 		SSLCertPath:         certPath,
 		SSLKeyPath:          keyPath,
+		WebRoot:             webRoot,
 	}
 	if err := h.db.SaveDomainMapping(mapping); err != nil {
 		_ = h.nginxMgr.RemoveVHost(req.Domain)

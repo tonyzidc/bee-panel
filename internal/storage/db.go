@@ -17,8 +17,13 @@ type DB struct {
 }
 
 func OpenDB(dbPath string) (*DB, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
+	}
+	_ = os.Chmod(dir, 0700)
+	if _, err := os.Stat(dbPath); err == nil {
+		_ = os.Chmod(dbPath, 0600)
 	}
 
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", dbPath)
@@ -278,6 +283,19 @@ func (db *DB) GetTenant(username string) (*Tenant, error) {
 	return t, nil
 }
 
+// GetTenantByID fetches a tenant by primary key ID
+func (db *DB) GetTenantByID(id int64) (*Tenant, error) {
+	t := &Tenant{}
+	err := db.conn.QueryRow(
+		"SELECT id, username, uid, gid, home_dir, status, docker_socket, COALESCE(password_plain, ''), COALESCE(private_key, ''), COALESCE(public_key, ''), created_at, updated_at FROM tenants WHERE id = ?",
+		id,
+	).Scan(&t.ID, &t.Username, &t.UID, &t.GID, &t.HomeDir, &t.Status, &t.DockerSocket, &t.PasswordPlain, &t.PrivateKey, &t.PublicKey, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 // UpdateTenantStatus sets tenant status (active / suspended)
 func (db *DB) UpdateTenantStatus(username, status string) error {
 	_, err := db.conn.Exec("UPDATE tenants SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?", status, username)
@@ -314,13 +332,17 @@ func (db *DB) SaveDomainMapping(m *DomainMapping) error {
 
 // ListDomainMappings returns domain mappings for a tenant
 func (db *DB) ListDomainMappings(tenantID int64) ([]*DomainMapping, error) {
-	query := "SELECT id, tenant_id, domain, external_port, target_container_port, enable_ssl, ssl_cert_path, ssl_key_path, created_at FROM domain_mappings"
+	query := `
+	SELECT d.id, d.tenant_id, COALESCE(t.username, 'unassigned'), COALESCE(t.home_dir, ''), d.domain, d.external_port, d.target_container_port, d.enable_ssl, COALESCE(d.ssl_cert_path, ''), COALESCE(d.ssl_key_path, ''), d.created_at
+	FROM domain_mappings d
+	LEFT JOIN tenants t ON d.tenant_id = t.id
+	`
 	var rows *sql.Rows
 	var err error
 	if tenantID > 0 {
-		rows, err = db.conn.Query(query+" WHERE tenant_id = ? ORDER BY id DESC", tenantID)
+		rows, err = db.conn.Query(query+" WHERE d.tenant_id = ? ORDER BY d.id DESC", tenantID)
 	} else {
-		rows, err = db.conn.Query(query + " ORDER BY id DESC")
+		rows, err = db.conn.Query(query + " ORDER BY d.id DESC")
 	}
 	if err != nil {
 		return nil, err
@@ -330,18 +352,24 @@ func (db *DB) ListDomainMappings(tenantID int64) ([]*DomainMapping, error) {
 	list := make([]*DomainMapping, 0)
 	for rows.Next() {
 		m := &DomainMapping{}
-		if err := rows.Scan(&m.ID, &m.TenantID, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {
+		var homeDir string
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.TenantUsername, &homeDir, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {
 			return nil, err
+		}
+		if homeDir != "" {
+			m.WebRoot = filepath.Join(homeDir, "web", m.Domain, "public_html")
+		} else {
+			m.WebRoot = filepath.Join("/var/www/vhosts", m.Domain, "public_html")
 		}
 		list = append(list, m)
 	}
 	return list, nil
 }
 
-// ListDomainMappingsWithTenant returns domains with the owner's username
+// ListDomainMappingsWithTenant returns domains with the owner's username and computed webroot
 func (db *DB) ListDomainMappingsWithTenant() ([]*DomainMapping, error) {
 	query := `
-	SELECT d.id, d.tenant_id, COALESCE(t.username, 'unassigned'), d.domain, d.external_port, d.target_container_port, d.enable_ssl, COALESCE(d.ssl_cert_path, ''), COALESCE(d.ssl_key_path, ''), d.created_at
+	SELECT d.id, d.tenant_id, COALESCE(t.username, 'unassigned'), COALESCE(t.home_dir, ''), d.domain, d.external_port, d.target_container_port, d.enable_ssl, COALESCE(d.ssl_cert_path, ''), COALESCE(d.ssl_key_path, ''), d.created_at
 	FROM domain_mappings d
 	LEFT JOIN tenants t ON d.tenant_id = t.id
 	ORDER BY d.id DESC
@@ -355,8 +383,14 @@ func (db *DB) ListDomainMappingsWithTenant() ([]*DomainMapping, error) {
 	list := make([]*DomainMapping, 0)
 	for rows.Next() {
 		m := &DomainMapping{}
-		if err := rows.Scan(&m.ID, &m.TenantID, &m.TenantUsername, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {
+		var homeDir string
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.TenantUsername, &homeDir, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {
 			return nil, err
+		}
+		if homeDir != "" {
+			m.WebRoot = filepath.Join(homeDir, "web", m.Domain, "public_html")
+		} else {
+			m.WebRoot = filepath.Join("/var/www/vhosts", m.Domain, "public_html")
 		}
 		list = append(list, m)
 	}
@@ -366,12 +400,21 @@ func (db *DB) ListDomainMappingsWithTenant() ([]*DomainMapping, error) {
 // GetDomainMapping gets a single domain mapping by domain name
 func (db *DB) GetDomainMapping(domain string) (*DomainMapping, error) {
 	m := &DomainMapping{}
-	err := db.conn.QueryRow(
-		"SELECT id, tenant_id, domain, external_port, target_container_port, enable_ssl, COALESCE(ssl_cert_path, ''), COALESCE(ssl_key_path, ''), created_at FROM domain_mappings WHERE domain = ?",
+	var homeDir string
+	err := db.conn.QueryRow(`
+		SELECT d.id, d.tenant_id, COALESCE(t.username, 'unassigned'), COALESCE(t.home_dir, ''), d.domain, d.external_port, d.target_container_port, d.enable_ssl, COALESCE(d.ssl_cert_path, ''), COALESCE(d.ssl_key_path, ''), d.created_at
+		FROM domain_mappings d
+		LEFT JOIN tenants t ON d.tenant_id = t.id
+		WHERE d.domain = ?`,
 		domain,
-	).Scan(&m.ID, &m.TenantID, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt)
+	).Scan(&m.ID, &m.TenantID, &m.TenantUsername, &homeDir, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if homeDir != "" {
+		m.WebRoot = filepath.Join(homeDir, "web", m.Domain, "public_html")
+	} else {
+		m.WebRoot = filepath.Join("/var/www/vhosts", m.Domain, "public_html")
 	}
 	return m, nil
 }

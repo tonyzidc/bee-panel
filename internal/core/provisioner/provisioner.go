@@ -17,7 +17,9 @@ type TenantCredentials struct {
 	GID               int    `json:"gid"`
 	HomeDir           string `json:"home_dir"`
 	Password          string `json:"password"`
+	PrivateKey        string `json:"private_key"`
 	PrivateKeyOpenSSH string `json:"private_key_openssh"`
+	PublicKey         string `json:"public_key"`
 	PublicKeyOpenSSH  string `json:"public_key_openssh"`
 	DockerSocket      string `json:"docker_socket"`
 }
@@ -145,7 +147,9 @@ func (p *Provisioner) ProvisionTenantWithCustom(username, customPassword, custom
 		GID:               userInfo.GID,
 		HomeDir:           userInfo.HomeDir,
 		Password:          password,
+		PrivateKey:        privKey,
 		PrivateKeyOpenSSH: privKey,
+		PublicKey:         pubKey,
 		PublicKeyOpenSSH:  pubKey,
 		DockerSocket:      socketPath,
 	}, nil

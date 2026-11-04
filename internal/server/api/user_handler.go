@@ -8,7 +8,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"bee-panel/internal/core/provisioner"
 	"bee-panel/internal/core/proxy"
+	"bee-panel/internal/server/middleware"
 	"bee-panel/internal/storage"
 )
 
@@ -101,14 +103,29 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var tenantID int64 = 1
+	var homeDir string
+	var uid, gid int
+	if authUser := middleware.GetAuthUser(r); authUser != nil {
+		if t, err := h.db.GetTenant(authUser.Username); err == nil && t != nil {
+			tenantID = t.ID
+			homeDir = t.HomeDir
+			uid = t.UID
+			gid = t.GID
+		}
+	}
+
+	webRoot, _ := provisioner.EnsureDomainWebroot(req.Domain, homeDir, uid, gid, req.TargetContainerPort)
+
 	mapping := &storage.DomainMapping{
-		TenantID:            1,
+		TenantID:            tenantID,
 		Domain:              req.Domain,
 		ExternalPort:        req.ExternalPort,
 		TargetContainerPort: req.TargetContainerPort,
 		EnableSSL:           req.EnableSSL,
 		SSLCertPath:         certPath,
 		SSLKeyPath:          keyPath,
+		WebRoot:             webRoot,
 	}
 
 	if err := h.db.SaveDomainMapping(mapping); err != nil {

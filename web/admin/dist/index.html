@@ -62,11 +62,34 @@
             <i class="fa-solid fa-bolt text-[11px]"></i>
             <span>Developer Portal</span>
           </a>
-          <span class="text-xs text-slate-500 hidden md:inline">Signed in as: <strong class="text-slate-800">{{ currentUser }}</strong></span>
-          <button @click="logout" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition border border-slate-200 flex items-center space-x-1">
-            <i class="fa-solid fa-arrow-right-from-bracket"></i>
-            <span>Sign Out</span>
-          </button>
+
+          <!-- User Menu Dropdown -->
+          <div class="relative">
+            <button @click="userMenuOpen = !userMenuOpen" class="flex items-center space-x-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-800 transition">
+              <div class="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                {{ (currentUser || 'A').charAt(0).toUpperCase() }}
+              </div>
+              <span class="hidden md:inline">Signed in as: <strong class="text-slate-900">{{ currentUser }}</strong></span>
+              <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': userMenuOpen }"></i>
+            </button>
+
+            <!-- Dropdown Body -->
+            <div v-if="userMenuOpen" class="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl py-1.5 z-50">
+              <div class="px-4 py-2 border-b border-slate-100 md:hidden">
+                <p class="text-[10px] uppercase font-bold tracking-wider text-slate-400">Signed in as</p>
+                <p class="text-xs font-bold text-slate-800 truncate">{{ currentUser }}</p>
+              </div>
+              <button @click="openProfileDrawer" class="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2.5 transition">
+                <i class="fa-solid fa-user-gear text-indigo-500 w-4"></i>
+                <span class="font-medium">Profile & Security</span>
+              </button>
+              <div class="border-t border-slate-100 my-1"></div>
+              <button @click="logout" class="w-full text-left px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 flex items-center space-x-2.5 transition">
+                <i class="fa-solid fa-arrow-right-from-bracket text-rose-500 w-4"></i>
+                <span class="font-semibold">Sign Out</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -431,7 +454,8 @@
                 <tr>
                   <th class="p-4">DOMAIN</th>
                   <th class="p-4">TENANT</th>
-                  <th class="p-4">EXTERNAL PORT</th>
+                  <th class="p-4">WEB DIRECTORY</th>
+                  <th class="p-4">LISTEN PORT</th>
                   <th class="p-4">TARGET PORT</th>
                   <th class="p-4">SSL STATUS</th>
                   <th class="p-4 text-right">ACTIONS</th>
@@ -439,7 +463,7 @@
               </thead>
               <tbody class="divide-y divide-slate-200 text-slate-700">
                 <tr v-if="!domains || domains.length === 0">
-                  <td colspan="6" class="p-8 text-center text-slate-400">
+                  <td colspan="7" class="p-8 text-center text-slate-400">
                     No domains configured yet. Click "Bind Domain" to setup reverse proxy routing!
                   </td>
                 </tr>
@@ -451,6 +475,14 @@
                   </td>
                   <td class="p-4">
                     <span class="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[11px]">{{ d.tenant_username || 'unassigned' }}</span>
+                  </td>
+                  <td class="p-4 font-mono text-[11px] text-slate-600 max-w-xs">
+                    <div class="flex items-center space-x-1.5" :title="d.web_root">
+                      <span class="truncate">{{ d.web_root || ('/var/www/vhosts/' + d.domain + '/public_html') }}</span>
+                      <button @click="copyText(d.web_root || ('/var/www/vhosts/' + d.domain + '/public_html'))" title="Copy Web Directory Path" class="text-slate-400 hover:text-slate-700 p-1">
+                        <i class="fa-solid fa-copy text-xs"></i>
+                      </button>
+                    </div>
                   </td>
                   <td class="p-4 font-mono text-slate-600">:{{ d.external_port }}</td>
                   <td class="p-4 font-mono text-slate-600">127.0.0.1:{{ d.target_container_port }}</td>
@@ -592,45 +624,6 @@
 
           <!-- Subtab 2: Fail2ban -->
           <div v-if="secSubTab === 'fail2ban'" class="space-y-6">
-            <!-- Fail2ban Configuration Card -->
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                <div>
-                  <h3 class="font-bold text-slate-900 text-base flex items-center">
-                    <i class="fa-solid fa-sliders text-amber-500 mr-2"></i> Fail2ban Configuration (/etc/fail2ban/jail.local)
-                  </h3>
-                  <p class="text-xs text-slate-500 mt-0.5">Configure ban durations, detection windows, retry limits, and IP whitelists.</p>
-                </div>
-                <button @click="saveFail2banConfig" :disabled="savingF2BConfig" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
-                  {{ savingF2BConfig ? 'Saving...' : 'Save Configuration' }}
-                </button>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Ban Duration (bantime)</label>
-                  <input v-model="fail2banConfig.bantime" placeholder="e.g. 1h, 24h, 3600" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
-                  <span class="text-[10px] text-slate-400 mt-0.5 block">How long offending IPs stay blocked.</span>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Find Window (findtime)</label>
-                  <input v-model="fail2banConfig.findtime" placeholder="e.g. 10m, 600" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
-                  <span class="text-[10px] text-slate-400 mt-0.5 block">Time window for counting failures.</span>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Max Retry (maxretry)</label>
-                  <input v-model.number="fail2banConfig.maxretry" type="number" min="1" max="100" placeholder="5" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
-                  <span class="text-[10px] text-slate-400 mt-0.5 block">Failed attempts before ban is triggered.</span>
-                </div>
-              </div>
-
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Whitelist / Ignore IPs (ignoreip)</label>
-                <input v-model="fail2banConfig.ignoreip" placeholder="127.0.0.1/8 ::1 192.168.1.0/24" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
-                <span class="text-[10px] text-slate-400 mt-0.5 block">Space-separated IP addresses or CIDR subnets that are never banned.</span>
-              </div>
-            </div>
-
             <!-- Banned IPs Card with Forensics & Pagination -->
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -646,9 +639,15 @@
                   </div>
                   <p class="text-xs text-slate-500 mt-0.5">Automated brute-force ban defense across active jails: <strong>{{ (fail2banStatus.jails || []).join(', ') || 'none' }}</strong></p>
                 </div>
-                <button @click="openBanIPModal" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
-                  <i class="fa-solid fa-ban mr-1"></i> Ban IP Manually
-                </button>
+                <div class="flex items-center space-x-2">
+                  <button @click="modals.fail2banConfig = true" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm flex items-center space-x-1.5">
+                    <i class="fa-solid fa-sliders text-amber-400"></i>
+                    <span>Fail2ban Settings</span>
+                  </button>
+                  <button @click="openBanIPModal" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm flex items-center space-x-1">
+                    <i class="fa-solid fa-ban mr-1"></i> Ban IP Manually
+                  </button>
+                </div>
               </div>
 
               <!-- Search & Filter Controls -->
@@ -943,61 +942,6 @@
                 </button>
               </div>
             </div>
-
-            <!-- Admin Profile & Security -->
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
-              <div>
-                <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
-                  <i class="fa-solid fa-user-pen text-indigo-600 mr-2"></i> Admin Account Profile
-                </h3>
-                <p class="text-xs text-slate-500 mb-4">Update administrator account username and email address.</p>
-
-                <div v-if="adminProfileFeedback.text" class="mb-4 p-3 rounded-xl text-xs font-semibold" :class="adminProfileFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
-                  <i :class="adminProfileFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
-                  {{ adminProfileFeedback.text }}
-                </div>
-
-                <form @submit.prevent="updateAdminProfile" class="space-y-4">
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Username</label>
-                    <input v-model="adminProfileForm.username" required placeholder="admin" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
-                    <input v-model="adminProfileForm.email" type="email" required placeholder="admin@example.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
-                  </div>
-                  <button type="submit" :disabled="savingAdminProfile" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
-                    {{ savingAdminProfile ? 'Updating Profile...' : 'Save Profile Changes' }}
-                  </button>
-                </form>
-              </div>
-
-              <div class="pt-4 border-t border-slate-200">
-                <h4 class="font-bold text-slate-900 text-sm mb-1 flex items-center">
-                  <i class="fa-solid fa-key text-amber-600 mr-2"></i> Change Admin Password
-                </h4>
-                <p class="text-xs text-slate-500 mb-3">Set a new strong password for administrator login.</p>
-
-                <div v-if="adminPasswordFeedback.text" class="mb-3 p-3 rounded-xl text-xs font-semibold" :class="adminPasswordFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
-                  <i :class="adminPasswordFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
-                  {{ adminPasswordFeedback.text }}
-                </div>
-
-                <form @submit.prevent="updateAdminPassword" class="space-y-3">
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">New Password</label>
-                    <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New password (min 8 characters)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
-                  </div>
-                  <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">Confirm New Password</label>
-                    <input v-model="confirmAdminPassword" type="password" required minlength="8" placeholder="Re-type new password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
-                  </div>
-                  <button type="submit" :disabled="changingAdminPassword" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
-                    {{ changingAdminPassword ? 'Updating Password...' : 'Update Password' }}
-                  </button>
-                </form>
-              </div>
-            </div>
           </div>
 
           <!-- Self-Update & Version Section -->
@@ -1075,17 +1019,46 @@
       </div>
     </div>
 
-    <!-- Modal 2: User Credentials & Keys Modal (Full Key Viewer & Actions) -->
+    <!-- Modal 2: User Credentials & Keys Modal (Full Key Viewer & Optimized Actions) -->
     <div v-if="modals.credentials" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
       <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
-            <h3 class="text-base font-bold text-slate-900">Credentials & Keys: {{ activeUser.username }}</h3>
+            <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <span class="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-800 text-xs font-mono font-bold">{{ activeUser.username }}</span>
+              <span>Credentials & SSH Access Keys</span>
+            </h3>
             <span class="text-xs text-slate-500">UID: {{ activeUser.uid }} | Socket: {{ activeUser.docker_socket }}</span>
           </div>
           <button @click="modals.credentials = false" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
         </div>
 
+        <div v-if="isNewUserCreated" class="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs flex items-center space-x-2.5">
+          <i class="fa-solid fa-circle-check text-emerald-600 text-base"></i>
+          <div>
+            <strong class="font-bold">Tenant Successfully Provisioned!</strong>
+            <p class="text-[11px] text-emerald-700 mt-0.5">Copy all connection details or download your SSH private key now before closing.</p>
+          </div>
+        </div>
+
+        <!-- 1-Click Copy All Connection Details -->
+        <button @click="copyAllConnectionInfo" class="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center justify-center space-x-2">
+          <i :class="copiedAll ? 'fa-solid fa-check' : 'fa-solid fa-clipboard-check'"></i>
+          <span>{{ copiedAll ? '✓ All Connection Details Copied to Clipboard!' : 'Copy All Connection Details (Host, Port, User, SSH Command)' }}</span>
+        </button>
+
+        <!-- Quick SSH Command -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Quick SSH Terminal Command:</label>
+          <div class="flex items-center space-x-2">
+            <input readonly :value="'ssh ' + activeUser.username + '@' + (publicIP || window.location.hostname) + ' -p ' + (currentSSHPort || 22)" class="w-full px-3 py-2 bg-slate-900 font-mono text-xs text-amber-400 rounded-lg border border-slate-700">
+            <button @click="copyText('ssh ' + activeUser.username + '@' + (publicIP || window.location.hostname) + ' -p ' + (currentSSHPort || 22))" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition">
+              Copy
+            </button>
+          </div>
+        </div>
+
+        <!-- Password -->
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">SSH & System Password:</label>
           <div class="flex items-center space-x-2">
@@ -1094,24 +1067,29 @@
           </div>
         </div>
 
-        <div v-if="activeUser.private_key">
+        <!-- Private Key -->
+        <div v-if="activeUser.private_key || activeUser.private_key_openssh">
           <div class="flex items-center justify-between mb-1">
             <label class="text-xs font-semibold text-slate-700">Ed25519 Private Key (OpenSSH format):</label>
-            <button @click="downloadFile(activeUser.username + '_id_ed25519', activeUser.private_key)" class="text-xs text-indigo-600 hover:underline">
-              <i class="fa-solid fa-download mr-1"></i>Download .pem
+            <button @click="downloadFile(activeUser.username + '_id_ed25519', activeUser.private_key || activeUser.private_key_openssh)" class="text-xs font-semibold text-indigo-600 hover:underline flex items-center space-x-1">
+              <i class="fa-solid fa-download"></i>
+              <span>Download .pem</span>
             </button>
           </div>
-          <textarea readonly rows="6" :value="activeUser.private_key" class="w-full p-2.5 bg-slate-50 font-mono text-[11px] text-slate-800 rounded-lg border border-slate-300"></textarea>
-          <button @click="copyText(activeUser.private_key)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200">
-            <i class="fa-solid fa-copy mr-1"></i> Copy Private Key
+          <textarea readonly rows="6" :value="activeUser.private_key || activeUser.private_key_openssh" class="w-full p-2.5 bg-slate-50 font-mono text-[11px] text-slate-800 rounded-lg border border-slate-300"></textarea>
+          <button @click="copyText(activeUser.private_key || activeUser.private_key_openssh)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 flex items-center justify-center space-x-1">
+            <i class="fa-solid fa-copy"></i>
+            <span>Copy Private Key</span>
           </button>
         </div>
 
+        <!-- Public Key -->
         <div>
           <label class="block text-xs font-semibold text-slate-700 mb-1">Public Key (authorized_keys):</label>
-          <textarea readonly rows="2" :value="activeUser.public_key" class="w-full p-2 bg-slate-50 font-mono text-[11px] text-slate-700 rounded-lg border border-slate-300"></textarea>
-          <button @click="copyText(activeUser.public_key)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200">
-            <i class="fa-solid fa-copy mr-1"></i> Copy Public Key
+          <textarea readonly rows="2" :value="activeUser.public_key || activeUser.public_key_openssh" class="w-full p-2 bg-slate-50 font-mono text-[11px] text-slate-700 rounded-lg border border-slate-300"></textarea>
+          <button @click="copyText(activeUser.public_key || activeUser.public_key_openssh)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200 flex items-center justify-center space-x-1">
+            <i class="fa-solid fa-copy"></i>
+            <span>Copy Public Key</span>
           </button>
         </div>
 
@@ -1120,7 +1098,7 @@
           <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
             <span class="text-xs font-bold text-slate-800 block">Change Password</span>
             <input v-model="changeUserPwdInput" type="password" placeholder="New password" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs">
-            <button @click="submitChangeUserPwd" class="w-full py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold">Update Password</button>
+            <button @click="submitChangeUserPwd" class="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold">Update Password</button>
           </div>
 
           <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
@@ -1458,6 +1436,136 @@
       </div>
     </div>
 
+    <!-- Modal 11: Fail2ban Configuration Modal -->
+    <div v-if="modals.fail2banConfig" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 flex items-center">
+              <i class="fa-solid fa-sliders text-amber-500 mr-2"></i> Fail2ban Configuration
+            </h3>
+            <span class="text-xs text-slate-500">Configure parameters for /etc/fail2ban/jail.local</span>
+          </div>
+          <button @click="modals.fail2banConfig = false" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+        </div>
+
+        <form @submit.prevent="saveFail2banConfig" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Ban Duration (bantime)</label>
+              <input v-model="fail2banConfig.bantime" placeholder="e.g. 1h, 24h" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900">
+              <span class="text-[10px] text-slate-400 mt-0.5 block">Offending IP block time.</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Find Window (findtime)</label>
+              <input v-model="fail2banConfig.findtime" placeholder="e.g. 10m" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900">
+              <span class="text-[10px] text-slate-400 mt-0.5 block">Failure count window.</span>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Retry (maxretry)</label>
+              <input v-model.number="fail2banConfig.maxretry" type="number" min="1" max="100" placeholder="5" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900">
+              <span class="text-[10px] text-slate-400 mt-0.5 block">Retry attempt limit.</span>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Whitelist / Ignore IPs (ignoreip)</label>
+            <input v-model="fail2banConfig.ignoreip" placeholder="127.0.0.1/8 ::1 192.168.1.0/24" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900">
+            <span class="text-[10px] text-slate-400 mt-0.5 block">Space-separated IP addresses or CIDR ranges never banned.</span>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+            <button type="button" @click="modals.fail2banConfig = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" :disabled="savingF2BConfig" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs disabled:opacity-50">
+              {{ savingF2BConfig ? 'Saving...' : 'Save Configuration' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- DRAWER: Admin Account Profile & Security -->
+    <div v-if="profileDrawerOpen" class="fixed inset-0 z-50 overflow-hidden">
+      <!-- Backdrop -->
+      <div @click="profileDrawerOpen = false" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
+      <div class="fixed inset-y-0 right-0 max-w-full flex pl-10">
+        <div class="w-screen max-w-md bg-white shadow-2xl flex flex-col border-l border-slate-200">
+          <!-- Drawer Header -->
+          <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+            <div class="flex items-center space-x-3">
+              <div class="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600">
+                <i class="fa-solid fa-user-gear"></i>
+              </div>
+              <div>
+                <h3 class="font-bold text-slate-900 text-sm">Admin Account Profile</h3>
+                <p class="text-[11px] text-slate-500">Manage administrator account & credentials</p>
+              </div>
+            </div>
+            <button @click="profileDrawerOpen = false" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition">
+              <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+          </div>
+
+          <!-- Drawer Content -->
+          <div class="flex-1 overflow-y-auto p-6 space-y-6">
+            <!-- Profile Info Form -->
+            <div>
+              <h4 class="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2 flex items-center">
+                <i class="fa-solid fa-user-pen text-indigo-600 mr-2"></i> Account Details
+              </h4>
+              <p class="text-xs text-slate-500 mb-3">Update administrator username and contact email.</p>
+
+              <div v-if="adminProfileFeedback.text" class="mb-3 p-3 rounded-xl text-xs font-semibold" :class="adminProfileFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                <i :class="adminProfileFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
+                {{ adminProfileFeedback.text }}
+              </div>
+
+              <form @submit.prevent="updateAdminProfile" class="space-y-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Username</label>
+                  <input v-model="adminProfileForm.username" required placeholder="admin" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                  <input v-model="adminProfileForm.email" type="email" required placeholder="admin@example.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <button type="submit" :disabled="savingAdminProfile" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                  {{ savingAdminProfile ? 'Updating Profile...' : 'Save Profile Changes' }}
+                </button>
+              </form>
+            </div>
+
+            <!-- Password Form -->
+            <div class="pt-5 border-t border-slate-200">
+              <h4 class="font-bold text-slate-900 text-xs uppercase tracking-wider mb-2 flex items-center">
+                <i class="fa-solid fa-key text-amber-600 mr-2"></i> Change Password
+              </h4>
+              <p class="text-xs text-slate-500 mb-3">Set a new strong password for administrator login.</p>
+
+              <div v-if="adminPasswordFeedback.text" class="mb-3 p-3 rounded-xl text-xs font-semibold" :class="adminPasswordFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                <i :class="adminPasswordFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
+                {{ adminPasswordFeedback.text }}
+              </div>
+
+              <form @submit.prevent="updateAdminPassword" class="space-y-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">New Password</label>
+                  <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="Min 8 characters" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Confirm New Password</label>
+                  <input v-model="confirmAdminPassword" type="password" required minlength="8" placeholder="Re-type new password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                </div>
+                <button type="submit" :disabled="changingAdminPassword" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                  {{ changingAdminPassword ? 'Updating Password...' : 'Update Password' }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -1530,6 +1638,12 @@
         const showForensicsModal = ref(false);
         const selectedForensics = ref(null);
 
+        // User menu & Drawer state
+        const userMenuOpen = ref(false);
+        const profileDrawerOpen = ref(false);
+        const isNewUserCreated = ref(false);
+        const copiedAll = ref(false);
+
         // Modals state
         const modals = ref({
           createUser: false,
@@ -1540,8 +1654,24 @@
           domainLogs: false,
           containerLogs: false,
           addFwRule: false,
-          banIP: false
+          banIP: false,
+          fail2banConfig: false
         });
+
+        const openProfileDrawer = () => {
+          userMenuOpen.value = false;
+          profileDrawerOpen.value = true;
+        };
+
+        const copyAllConnectionInfo = () => {
+          const host = publicIP.value || window.location.hostname;
+          const port = currentSSHPort.value || 22;
+          const u = activeUser.value;
+          const text = `Host: ${host}\nPort: ${port}\nUsername: ${u.username}\nPassword: ${u.password}\nSSH Command: ssh ${u.username}@${host} -p ${port}\nDocker Socket: ${u.docker_socket}`;
+          copyText(text);
+          copiedAll.value = true;
+          setTimeout(() => { copiedAll.value = false; }, 3000);
+        };
 
         const activeUser = ref({});
         const createUserForm = ref({ username: '', password: '', public_key: '' });
@@ -1871,7 +2001,12 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to provision tenant');
             modals.value.createUser = false;
-            activeUser.value = data;
+            activeUser.value = {
+              ...data,
+              private_key: data.private_key || data.private_key_openssh || '',
+              public_key: data.public_key || data.public_key_openssh || ''
+            };
+            isNewUserCreated.value = true;
             modals.value.credentials = true;
             await refreshData();
           } catch (e) {
@@ -1882,17 +2017,31 @@
         };
 
         const viewUserCredentials = async (t) => {
+          isNewUserCreated.value = false;
           try {
             const res = await fetch(`/api/admin/tenants/${t.username}`, { headers: authHeaders() });
             if (res.ok) {
-              activeUser.value = await res.json();
+              const data = await res.json();
+              activeUser.value = {
+                ...data,
+                private_key: data.private_key || data.private_key_openssh || '',
+                public_key: data.public_key || data.public_key_openssh || ''
+              };
             } else {
-              activeUser.value = t;
+              activeUser.value = {
+                ...t,
+                private_key: t.private_key || t.private_key_openssh || '',
+                public_key: t.public_key || t.public_key_openssh || ''
+              };
             }
             changeUserPwdInput.value = '';
             modals.value.credentials = true;
           } catch (e) {
-            activeUser.value = t;
+            activeUser.value = {
+              ...t,
+              private_key: t.private_key || t.private_key_openssh || '',
+              public_key: t.public_key || t.public_key_openssh || ''
+            };
             modals.value.credentials = true;
           }
         };
@@ -2196,7 +2345,9 @@
             });
             const data = await res.json();
             if (res.ok) {
+              modals.value.fail2banConfig = false;
               alert('Fail2ban configuration saved and service reloaded!');
+              await refreshSecurity();
             } else {
               alert('Save Fail2ban error: ' + (data.error || 'Failed'));
             }
@@ -2587,6 +2738,7 @@
           openBindDomainModal, handleBindDomain, deleteDomain, openEditDomainModal, submitEditDomain, openSSLModal, triggerSSLRenew, submitCustomSSL, viewDomainLogs, fetchDomainLogs,
           toggleFirewall, openAddRuleModal, submitAddFwRule, deleteFirewallRule, openBanIPModal, submitBanIP, unbanIP,
           savePanelSettings, bindPanelDomain, removePanelDomain, updateAdminProfile, sendTelegramTest, changeSSHPort, updateAdminPassword, checkForUpdate, performUpdate,
+          userMenuOpen, profileDrawerOpen, openProfileDrawer, isNewUserCreated, copiedAll, copyAllConnectionInfo,
           copyText, downloadFile, formatDate, formatUptime
         };
       }

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,12 +15,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.27.x'
+          cache: true
 
       - name: Build multi-arch binaries
         run: |
@@ -29,7 +31,8 @@ jobs:
           ls -lh bin/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             bin/bee-panel-linux-amd64

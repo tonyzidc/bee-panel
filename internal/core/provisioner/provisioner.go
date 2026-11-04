@@ -3,6 +3,7 @@ package provisioner
 import (
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"time"
 
 	"bee-panel/internal/core/docker"
@@ -32,14 +33,35 @@ func NewProvisioner(logger *slog.Logger) *Provisioner {
 	return &Provisioner{logger: logger}
 }
 
-// ProvisionTenant runs the 6-step atomic user creation pipeline with complete rollback on error
+// ProvisionTenant runs the atomic user creation pipeline with complete rollback on error
 func (p *Provisioner) ProvisionTenant(username string) (*TenantCredentials, error) {
+	return p.ProvisionTenantWithCustom(username, "", "")
+}
+
+// ProvisionTenantWithCustom allows specifying initial password or custom public key
+func (p *Provisioner) ProvisionTenantWithCustom(username, customPassword, customPubKey string) (*TenantCredentials, error) {
 	p.logger.Info("Starting tenant provisioning pipeline", "username", username)
 
-	// Step 0: Generate SSH Credentials & Password
-	creds, err := system.GenerateEd25519Keypair(fmt.Sprintf("%s@bee-panel", username))
-	if err != nil {
-		return nil, fmt.Errorf("generate credentials: %w", err)
+	var privKey, pubKey, password string
+	if customPubKey != "" {
+		pubKey = customPubKey
+	} else {
+		creds, err := system.GenerateEd25519Keypair(fmt.Sprintf("%s@bee-panel", username))
+		if err != nil {
+			return nil, fmt.Errorf("generate credentials: %w", err)
+		}
+		privKey = creds.PrivateKeyOpenSSH
+		pubKey = creds.PublicKeyOpenSSH
+	}
+
+	if customPassword != "" {
+		password = customPassword
+	} else {
+		pwd, err := system.GenerateRandomPassword(24)
+		if err != nil {
+			return nil, fmt.Errorf("generate password: %w", err)
+		}
+		password = pwd
 	}
 
 	// State tracking for atomic rollback
@@ -68,7 +90,8 @@ func (p *Provisioner) ProvisionTenant(username string) (*TenantCredentials, erro
 
 	// Step 1: Create Linux User & SubUID/SubGID
 	p.logger.Info("Step 1: Creating Linux user & subuid mapping", "username", username)
-	userInfo, err = system.CreateLinuxUser(username, creds.Password)
+	var err error
+	userInfo, err = system.CreateLinuxUser(username, password)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
@@ -76,7 +99,7 @@ func (p *Provisioner) ProvisionTenant(username string) (*TenantCredentials, erro
 
 	// Step 2: Setup SSH Keys
 	p.logger.Info("Step 2: Installing Ed25519 authorized keys", "username", username)
-	if err := system.SetupUserSSHKeys(userInfo.HomeDir, userInfo.UID, userInfo.GID, creds.PublicKeyOpenSSH); err != nil {
+	if err := system.SetupUserSSHKeys(userInfo.HomeDir, userInfo.UID, userInfo.GID, pubKey); err != nil {
 		return nil, rollback("setup_ssh_keys", err)
 	}
 
@@ -121,11 +144,68 @@ func (p *Provisioner) ProvisionTenant(username string) (*TenantCredentials, erro
 		UID:               userInfo.UID,
 		GID:               userInfo.GID,
 		HomeDir:           userInfo.HomeDir,
-		Password:          creds.Password,
-		PrivateKeyOpenSSH: creds.PrivateKeyOpenSSH,
-		PublicKeyOpenSSH:  creds.PublicKeyOpenSSH,
+		Password:          password,
+		PrivateKeyOpenSSH: privKey,
+		PublicKeyOpenSSH:  pubKey,
 		DockerSocket:      socketPath,
 	}, nil
+}
+
+// SuspendTenant stops tenant docker and locks Linux account
+func (p *Provisioner) SuspendTenant(username string, uid int) error {
+	_ = docker.StopRootlessDocker(username, uid)
+	_ = systemd.DisableLinger(username)
+	_ = systemd.TerminateUser(username)
+	return system.LockLinuxUser(username)
+}
+
+// ResumeTenant unlocks Linux account and enables systemd linger/docker
+func (p *Provisioner) ResumeTenant(username string, uid int) error {
+	if err := system.UnlockLinuxUser(username); err != nil {
+		return err
+	}
+	_ = systemd.EnableLinger(username)
+	runtimeDir := fmt.Sprintf("/run/user/%d", uid)
+	startCmd := fmt.Sprintf("export XDG_RUNTIME_DIR=%s; systemctl --user start docker", runtimeDir)
+	_ = exec.Command("su", "-", username, "-c", startCmd).Run()
+	return nil
+}
+
+// RestartTenantDocker restarts the rootless docker daemon for a tenant
+func (p *Provisioner) RestartTenantDocker(username string, uid int) error {
+	runtimeDir := fmt.Sprintf("/run/user/%d", uid)
+	restartCmd := fmt.Sprintf("export XDG_RUNTIME_DIR=%s; systemctl --user restart docker", runtimeDir)
+	out, err := exec.Command("su", "-", username, "-c", restartCmd).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restart docker error: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
+// ChangePassword changes the user password
+func (p *Provisioner) ChangePassword(username, newPassword string) error {
+	return system.ChangeLinuxUserPassword(username, newPassword)
+}
+
+// RotateSSHKey generates a new keypair or installs custom public key
+func (p *Provisioner) RotateSSHKey(username string, uid, gid int, homeDir, customPubKey string) (string, string, error) {
+	var privKey, pubKey string
+	if customPubKey != "" {
+		pubKey = customPubKey
+	} else {
+		creds, err := system.GenerateEd25519Keypair(fmt.Sprintf("%s@bee-panel", username))
+		if err != nil {
+			return "", "", err
+		}
+		privKey = creds.PrivateKeyOpenSSH
+		pubKey = creds.PublicKeyOpenSSH
+	}
+
+	if err := system.ReplaceUserSSHKey(homeDir, uid, gid, pubKey); err != nil {
+		return "", "", err
+	}
+
+	return privKey, pubKey, nil
 }
 
 // DeprovisionTenant cleanly dismantles a tenant: stops docker, kills user sessions, deletes user and data

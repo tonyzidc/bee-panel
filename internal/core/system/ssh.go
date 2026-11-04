@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -81,7 +82,7 @@ func SetupUserSSHKeys(homeDir string, uid, gid int, publicKey string) error {
 	}
 	defer f.Close()
 
-	if _, err := f.WriteString(publicKey + "\n"); err != nil {
+	if _, err := f.WriteString(strings.TrimSpace(publicKey) + "\n"); err != nil {
 		return fmt.Errorf("write authorized_keys: %w", err)
 	}
 
@@ -92,5 +93,24 @@ func SetupUserSSHKeys(homeDir string, uid, gid int, publicKey string) error {
 		return fmt.Errorf("chown authorized_keys: %w", err)
 	}
 
+	return nil
+}
+
+// ReplaceUserSSHKey replaces the authorized_keys file with a single new public key
+func ReplaceUserSSHKey(homeDir string, uid, gid int, newPublicKey string) error {
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("mkdir .ssh: %w", err)
+	}
+	_ = os.Chown(sshDir, uid, gid)
+
+	authKeysPath := filepath.Join(sshDir, "authorized_keys")
+	content := strings.TrimSpace(newPublicKey) + "\n"
+	if err := os.WriteFile(authKeysPath, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write authorized_keys: %w", err)
+	}
+
+	_ = os.Chmod(authKeysPath, 0600)
+	_ = os.Chown(authKeysPath, uid, gid)
 	return nil
 }

@@ -27,16 +27,16 @@ import (
 )
 
 type DualServer struct {
-	cfg          *config.Config
-	db           *storage.DB
-	prov         *provisioner.Provisioner
-	nginxMgr     *proxy.NginxManager
-	sslMgr       *proxy.SSLManager
-	adminFS      fs.FS
-	userFS       fs.FS
-	logger       *slog.Logger
-	adminServer  *http.Server
-	userServer   *http.Server
+	cfg         *config.Config
+	db          *storage.DB
+	prov        *provisioner.Provisioner
+	nginxMgr    *proxy.NginxManager
+	sslMgr      *proxy.SSLManager
+	adminFS     fs.FS
+	userFS      fs.FS
+	logger      *slog.Logger
+	adminServer *http.Server
+	userServer  *http.Server
 }
 
 func NewDualServer(
@@ -83,7 +83,7 @@ func (s *DualServer) Start(ctx context.Context) error {
 	}))
 
 	setupH := api.NewSetupHandler(s.db, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
-	adminH := api.NewAdminHandler(s.db, s.prov, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
+	adminH := api.NewAdminHandler(s.cfg, s.db, s.prov, s.nginxMgr, s.sslMgr, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
 
 	adminRouter.Route("/api", func(r chi.Router) {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -100,10 +100,56 @@ func (s *DualServer) Start(ctx context.Context) error {
 		// Protected Admin Routes
 		r.Group(func(pr chi.Router) {
 			pr.Use(serverMiddleware.JWTAuthMiddleware(s.cfg.Server.JWTSecret))
+
+			// Metrics & System
 			pr.Get("/admin/system/metrics", adminH.GetMetrics)
+			pr.Get("/admin/system/version", adminH.GetVersion)
+			pr.Post("/admin/system/check-update", adminH.CheckUpdate)
+			pr.Post("/admin/system/update", adminH.TriggerUpdate)
+
+			// Tenants (Users)
 			pr.Get("/admin/tenants", adminH.ListTenants)
 			pr.Post("/admin/tenants", adminH.CreateTenant)
+			pr.Get("/admin/tenants/{username}", adminH.GetTenant)
+			pr.Put("/admin/tenants/{username}/status", adminH.UpdateTenantStatus)
+			pr.Put("/admin/tenants/{username}/password", adminH.UpdateTenantPassword)
+			pr.Put("/admin/tenants/{username}/keys", adminH.UpdateTenantSSHKey)
+			pr.Post("/admin/tenants/{username}/restart-docker", adminH.RestartTenantDocker)
 			pr.Delete("/admin/tenants/{username}", adminH.DeleteTenant)
+
+			// Docker Containers Explorer
+			pr.Get("/admin/docker/containers", adminH.ListContainers)
+			pr.Post("/admin/docker/containers/{tenant}/{id}/start", adminH.StartContainer)
+			pr.Post("/admin/docker/containers/{tenant}/{id}/stop", adminH.StopContainer)
+			pr.Post("/admin/docker/containers/{tenant}/{id}/restart", adminH.RestartContainer)
+			pr.Get("/admin/docker/containers/{tenant}/{id}/logs", adminH.GetContainerLogs)
+
+			// Domains & Proxy Management
+			pr.Get("/admin/domains", adminH.ListDomains)
+			pr.Post("/admin/domains", adminH.BindDomain)
+			pr.Put("/admin/domains/{domain}", adminH.UpdateDomain)
+			pr.Delete("/admin/domains/{domain}", adminH.DeleteDomain)
+			pr.Post("/admin/domains/{domain}/ssl/renew", adminH.ForceRenewSSL)
+			pr.Post("/admin/domains/{domain}/ssl/custom", adminH.UploadCustomSSL)
+			pr.Get("/admin/domains/{domain}/logs", adminH.GetDomainLogs)
+
+			// Security (Firewall & Fail2ban)
+			pr.Get("/admin/security/firewall/status", adminH.GetFirewallStatus)
+			pr.Post("/admin/security/firewall/toggle", adminH.ToggleFirewall)
+			pr.Post("/admin/security/firewall/rules", adminH.AddFirewallRule)
+			pr.Delete("/admin/security/firewall/rules/{number}", adminH.DeleteFirewallRule)
+			pr.Get("/admin/security/fail2ban/status", adminH.GetFail2banStatus)
+			pr.Post("/admin/security/fail2ban/ban", adminH.BanFail2banIP)
+			pr.Post("/admin/security/fail2ban/unban", adminH.UnbanFail2banIP)
+
+			// Settings, Telegram & SSH
+			pr.Get("/admin/settings", adminH.GetSettings)
+			pr.Put("/admin/settings", adminH.UpdateSettings)
+			pr.Post("/admin/settings/telegram/test", adminH.SendTelegramTest)
+			pr.Get("/admin/settings/ssh/port", adminH.GetSSHPort)
+			pr.Put("/admin/settings/ssh/port", adminH.ChangeSSHPort)
+			pr.Put("/admin/settings/admin/profile", adminH.UpdateAdminProfile)
+			pr.Put("/admin/settings/admin/password", adminH.UpdateAdminPassword)
 		})
 	})
 
@@ -132,6 +178,8 @@ func (s *DualServer) Start(ctx context.Context) error {
 		r.Get("/user/domains", userH.ListDomains)
 		r.Post("/user/domains", userH.BindDomain)
 		r.Delete("/user/domains/{domain}", userH.DeleteDomain)
+		r.Get("/user/domains/{domain}/logs", userH.GetDomainLogs)
+		r.Post("/user/domains/{domain}/renew-ssl", userH.RenewSSL)
 	})
 
 	if s.userFS != nil {

@@ -128,6 +128,34 @@ func CreateLinuxUser(username string, password string) (*UserInfo, error) {
 	}, nil
 }
 
+// ChangeLinuxUserPassword updates password for an existing Linux user
+func ChangeLinuxUserPassword(username, newPassword string) error {
+	chpasswdCmd := exec.Command("chpasswd")
+	chpasswdCmd.Stdin = strings.NewReader(fmt.Sprintf("%s:%s", username, newPassword))
+	if out, err := chpasswdCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("chpasswd failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
+// LockLinuxUser locks the Linux user account
+func LockLinuxUser(username string) error {
+	out, err := exec.Command("usermod", "-L", username).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("usermod -L failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
+// UnlockLinuxUser unlocks the Linux user account
+func UnlockLinuxUser(username string) error {
+	out, err := exec.Command("usermod", "-U", username).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("usermod -U failed: %s (%w)", string(out), err)
+	}
+	return nil
+}
+
 // ensureSubUIDRange checks and appends subuid & subgid mapping if not present
 func ensureSubUIDRange(username string) (int, error) {
 	// Check if already mapped

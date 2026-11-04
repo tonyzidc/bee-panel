@@ -1,0 +1,1697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bee Panel - Admin Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { background-color: #f8fafc; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-50 text-slate-800">
+  <div id="app" class="flex flex-col min-h-screen">
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-500 text-xl font-bold shadow-sm">
+            🐝
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h1 class="font-bold text-lg text-slate-900 leading-none">Bee Panel</h1>
+              <span class="px-2 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 rounded-full border border-amber-200">Admin</span>
+            </div>
+            <span class="text-xs text-slate-500">Rootless Control Plane</span>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs (Only when logged in) -->
+        <nav v-if="token" class="hidden md:flex items-center space-x-1">
+          <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-chart-line text-[11px]"></i>
+            <span>Dashboard</span>
+          </button>
+          <button @click="activeTab = 'users'" :class="activeTab === 'users' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-users text-[11px]"></i>
+            <span>Users</span>
+          </button>
+          <button @click="activeTab = 'docker'" :class="activeTab === 'docker' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-brands fa-docker text-[12px]"></i>
+            <span>Containers</span>
+          </button>
+          <button @click="activeTab = 'domains'" :class="activeTab === 'domains' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-network-wired text-[11px]"></i>
+            <span>Domains</span>
+          </button>
+          <button @click="activeTab = 'security'" :class="activeTab === 'security' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-shield-halved text-[11px]"></i>
+            <span>Security</span>
+          </button>
+          <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'bg-amber-50 text-amber-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'" class="px-3 py-1.5 rounded-lg text-xs transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-sliders text-[11px]"></i>
+            <span>Settings</span>
+          </button>
+        </nav>
+
+        <div v-if="token" class="flex items-center space-x-3">
+          <span class="text-xs text-slate-500 hidden sm:inline">Signed in as: <strong class="text-slate-800">{{ currentUser }}</strong></span>
+          <button @click="logout" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition border border-slate-200 flex items-center space-x-1">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Navigation Subbar -->
+      <div v-if="token" class="md:hidden flex items-center space-x-1 px-4 py-2 bg-slate-100 border-t border-slate-200 overflow-x-auto text-xs">
+        <button @click="activeTab = 'dashboard'" :class="activeTab === 'dashboard' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Dashboard</button>
+        <button @click="activeTab = 'users'" :class="activeTab === 'users' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Users</button>
+        <button @click="activeTab = 'docker'" :class="activeTab === 'docker' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Containers</button>
+        <button @click="activeTab = 'domains'" :class="activeTab === 'domains' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Domains</button>
+        <button @click="activeTab = 'security'" :class="activeTab === 'security' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Security</button>
+        <button @click="activeTab = 'settings'" :class="activeTab === 'settings' ? 'bg-white text-amber-700 font-semibold shadow-sm' : 'text-slate-600'" class="px-2.5 py-1 rounded-md">Settings</button>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6">
+      <!-- Loading State -->
+      <div v-if="loading" class="flex flex-col items-center justify-center py-24">
+        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-500"></div>
+        <p class="text-slate-500 text-sm mt-4 font-medium">Connecting to Bee Panel...</p>
+      </div>
+
+      <!-- Setup Wizard Screen (Initial Admin Registration) -->
+      <div v-else-if="!isSetup" class="max-w-md mx-auto my-12 bg-white border border-slate-200 rounded-2xl p-6 shadow-xl">
+        <div class="text-center mb-6">
+          <div class="inline-block p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-200 text-3xl mb-3">🚀</div>
+          <h2 class="text-xl font-bold text-slate-900">Initialize Administrator</h2>
+          <p class="text-slate-500 text-xs mt-1">No admin account found. Create the primary superadmin account to activate Bee Panel.</p>
+        </div>
+        <form @submit.prevent="handleRegister">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Username</label>
+              <input v-model="setupForm.username" required placeholder="admin" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+              <input v-model="setupForm.email" type="email" required placeholder="admin@example.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password (min. 8 characters)</label>
+              <input v-model="setupForm.password" type="password" required minlength="8" placeholder="••••••••" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            </div>
+            <div v-if="errorMsg" class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-xs font-medium">
+              {{ errorMsg }}
+            </div>
+            <button type="submit" :disabled="submitting" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm rounded-lg transition shadow-md shadow-amber-500/20 disabled:opacity-50">
+              {{ submitting ? 'Activating Bee Panel...' : 'Activate Bee Panel' }}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Login Screen -->
+      <div v-else-if="!token" class="max-w-md mx-auto my-12 bg-white border border-slate-200 rounded-2xl p-6 shadow-xl">
+        <div class="text-center mb-6">
+          <div class="inline-block p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-200 text-3xl mb-3">🐝</div>
+          <h2 class="text-xl font-bold text-slate-900">Admin Sign In</h2>
+          <p class="text-slate-500 text-xs mt-1">Bee Panel Control Console (:8443)</p>
+        </div>
+        <form @submit.prevent="handleLogin">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Username</label>
+              <input v-model="loginForm.username" required placeholder="admin" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+              <input v-model="loginForm.password" type="password" required placeholder="••••••••" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            </div>
+            <div v-if="errorMsg" class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-xs font-medium">
+              {{ errorMsg }}
+            </div>
+            <button type="submit" :disabled="submitting" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm rounded-lg transition shadow-md shadow-amber-500/20 disabled:opacity-50">
+              {{ submitting ? 'Signing In...' : 'Sign In' }}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Logged-in Content Views -->
+      <div v-else class="space-y-6">
+
+        <!-- ============================================================== -->
+        <!-- VIEW 1: DASHBOARD -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'dashboard'" class="space-y-6">
+          <!-- Overview Metric Cards -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- CPU Card -->
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div class="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+                <span>CPU USAGE</span>
+                <i class="fa-solid fa-gauge-high text-amber-500 text-sm"></i>
+              </div>
+              <div class="text-2xl font-bold text-slate-900">{{ metrics.cpu_usage_percent }}%</div>
+              <div class="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                <div class="bg-amber-500 h-2 rounded-full transition-all duration-500" :style="{ width: metrics.cpu_usage_percent + '%' }"></div>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2">
+                <span>{{ metrics.cpu_cores }} Cores</span>
+                <span>Load: {{ metrics.load_average || '0.00' }}</span>
+              </div>
+            </div>
+
+            <!-- RAM Card -->
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div class="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+                <span>MEMORY (RAM)</span>
+                <i class="fa-solid fa-microchip text-indigo-500 text-sm"></i>
+              </div>
+              <div class="text-2xl font-bold text-slate-900">{{ metrics.memory_used_mb }} / {{ metrics.memory_total_mb }} MB</div>
+              <div class="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                <div class="bg-indigo-600 h-2 rounded-full transition-all duration-500" :style="{ width: ramUsagePercent + '%' }"></div>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2">
+                <span>{{ ramUsagePercent }}% Used</span>
+                <span>Free: {{ metrics.memory_free_mb }} MB</span>
+              </div>
+            </div>
+
+            <!-- Swap Card -->
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div class="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+                <span>SWAP MEMORY</span>
+                <i class="fa-solid fa-arrows-rotate text-emerald-500 text-sm"></i>
+              </div>
+              <div class="text-2xl font-bold text-slate-900">{{ metrics.swap_used_mb }} / {{ metrics.swap_total_mb }} MB</div>
+              <div class="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                <div class="bg-emerald-500 h-2 rounded-full transition-all duration-500" :style="{ width: swapUsagePercent + '%' }"></div>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2">
+                <span>{{ swapUsagePercent }}% Used</span>
+                <span>Auto 2GB baseline</span>
+              </div>
+            </div>
+
+            <!-- Disk Card -->
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div class="flex items-center justify-between text-xs font-semibold text-slate-500 mb-2">
+                <span>STORAGE DISK</span>
+                <i class="fa-solid fa-hard-drive text-cyan-500 text-sm"></i>
+              </div>
+              <div class="text-2xl font-bold text-slate-900">{{ metrics.disk_used_gb }} / {{ metrics.disk_total_gb }} GB</div>
+              <div class="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden">
+                <div class="bg-cyan-500 h-2 rounded-full transition-all duration-500" :style="{ width: diskUsagePercent + '%' }"></div>
+              </div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2">
+                <span>{{ diskUsagePercent }}% Used</span>
+                <span>Free: {{ metrics.disk_free_gb }} GB</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Status & System Summary -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-500 font-semibold block">TENANTS (ISOLATED USERS)</span>
+                <span class="text-2xl font-bold text-slate-900">{{ tenants.length }}</span>
+                <span class="text-xs text-emerald-600 block mt-1"><i class="fa-solid fa-circle-check text-[10px] mr-1"></i>Zero-Root UserNS</span>
+              </div>
+              <button @click="activeTab = 'users'" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">Manage</button>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-500 font-semibold block">DOCKER CONTAINERS</span>
+                <span class="text-2xl font-bold text-slate-900">{{ metrics.containers_count || containers.length }}</span>
+                <span class="text-xs text-indigo-600 block mt-1"><i class="fa-brands fa-docker text-[11px] mr-1"></i>Pasta Network Driver</span>
+              </div>
+              <button @click="activeTab = 'docker'" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">Explorer</button>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-500 font-semibold block">HOST SECURITY</span>
+                <div class="flex items-center space-x-2 mt-1">
+                  <span class="px-2 py-0.5 rounded text-[11px] font-semibold" :class="metrics.firewall_enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">
+                    UFW: {{ metrics.firewall_enabled ? 'Active' : 'Inactive' }}
+                  </span>
+                  <span class="px-2 py-0.5 rounded text-[11px] font-semibold" :class="metrics.fail2ban_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'">
+                    Fail2ban: {{ metrics.fail2ban_active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
+                <span class="text-[11px] text-slate-400 block mt-1">Uptime: {{ formatUptime(metrics.uptime_seconds) }}</span>
+              </div>
+              <button @click="activeTab = 'security'" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">Security</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 2: USER MANAGEMENT (FULL CRUD & CREDENTIALS) -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'users'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="font-bold text-slate-900 text-base flex items-center">
+                <i class="fa-solid fa-users text-amber-500 mr-2"></i> User Directory (Rootless Tenants)
+              </h3>
+              <p class="text-xs text-slate-500 mt-0.5">Manage isolated Linux tenants with dedicated user namespaces, SSH access, and Rootless Docker daemons.</p>
+            </div>
+            <button @click="openCreateUserModal" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 shadow-sm shadow-amber-500/20">
+              <i class="fa-solid fa-plus"></i>
+              <span>Create User</span>
+            </button>
+          </div>
+
+          <!-- Users Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="p-4">USERNAME</th>
+                  <th class="p-4">UID / GID</th>
+                  <th class="p-4">DOCKER SOCKET</th>
+                  <th class="p-4">STATUS</th>
+                  <th class="p-4">CREATED</th>
+                  <th class="p-4 text-right">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 text-slate-700">
+                <tr v-if="tenants.length === 0">
+                  <td colspan="6" class="p-8 text-center text-slate-400">
+                    No tenant users provisioned yet. Click "Create User" to add one!
+                  </td>
+                </tr>
+                <tr v-for="t in tenants" :key="t.id" class="hover:bg-slate-50 transition">
+                  <td class="p-4 font-semibold text-slate-900">
+                    <i class="fa-solid fa-user-astronaut text-amber-500 mr-2"></i>{{ t.username }}
+                  </td>
+                  <td class="p-4 text-slate-500">{{ t.uid }} / {{ t.gid }}</td>
+                  <td class="p-4 font-mono text-[11px] text-slate-600">{{ t.docker_socket }}</td>
+                  <td class="p-4">
+                    <span v-if="t.status === 'active'" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Active
+                    </span>
+                    <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+                      Suspended
+                    </span>
+                  </td>
+                  <td class="p-4 text-slate-500">{{ formatDate(t.created_at) }}</td>
+                  <td class="p-4 text-right space-x-1.5">
+                    <button @click="viewUserCredentials(t)" title="View Credentials & Keys" class="px-2.5 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg transition">
+                      <i class="fa-solid fa-key mr-1"></i> Keys
+                    </button>
+                    <button @click="restartUserDocker(t.username)" title="Restart Tenant Docker Daemon" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg transition">
+                      <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                    <button @click="toggleUserStatus(t)" :title="t.status === 'active' ? 'Suspend User' : 'Resume User'" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg transition">
+                      <i :class="t.status === 'active' ? 'fa-solid fa-pause text-amber-600' : 'fa-solid fa-play text-emerald-600'"></i>
+                    </button>
+                    <button @click="confirmDeleteUser(t.username)" title="Delete User Permanently" class="px-2.5 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg transition">
+                      <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 3: GLOBAL DOCKER CONTAINERS EXPLORER -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'docker'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="font-bold text-slate-900 text-base flex items-center">
+                <i class="fa-brands fa-docker text-indigo-600 mr-2 text-lg"></i> System-Wide Container Explorer
+              </h3>
+              <p class="text-xs text-slate-500 mt-0.5">Real-time status of all containers running across isolated rootless tenant sockets.</p>
+            </div>
+            <button @click="refreshContainers" class="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition flex items-center space-x-1 border border-slate-200">
+              <i class="fa-solid fa-arrows-rotate" :class="{ 'animate-spin': loadingContainers }"></i>
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="p-4">CONTAINER NAME / ID</th>
+                  <th class="p-4">TENANT OWNER</th>
+                  <th class="p-4">IMAGE</th>
+                  <th class="p-4">STATE / STATUS</th>
+                  <th class="p-4">PORTS</th>
+                  <th class="p-4 text-right">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 text-slate-700">
+                <tr v-if="containers.length === 0">
+                  <td colspan="6" class="p-8 text-center text-slate-400">
+                    No Docker containers currently discovered on any tenant sockets.
+                  </td>
+                </tr>
+                <tr v-for="c in containers" :key="c.id" class="hover:bg-slate-50 transition">
+                  <td class="p-4 font-semibold text-slate-900">
+                    <div>{{ c.display_name }}</div>
+                    <span class="text-[10px] text-slate-400 font-mono">{{ c.short_id }}</span>
+                  </td>
+                  <td class="p-4 font-medium text-slate-700">
+                    <span class="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[11px]">{{ c.tenant }}</span>
+                  </td>
+                  <td class="p-4 font-mono text-[11px] text-slate-600 truncate max-w-xs">{{ c.image }}</td>
+                  <td class="p-4">
+                    <span v-if="c.state === 'running'" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      {{ c.status }}
+                    </span>
+                    <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      {{ c.status }}
+                    </span>
+                  </td>
+                  <td class="p-4 text-slate-600 font-mono text-[10px]">
+                    <div v-for="p in c.ports" :key="p.private_port">
+                      {{ p.public_port ? p.public_port + ':' : '' }}{{ p.private_port }}/{{ p.type }}
+                    </div>
+                    <span v-if="!c.ports || c.ports.length === 0" class="text-slate-400">-</span>
+                  </td>
+                  <td class="p-4 text-right space-x-1.5">
+                    <button v-if="c.state !== 'running'" @click="startContainer(c)" class="px-2 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg">
+                      <i class="fa-solid fa-play"></i> Start
+                    </button>
+                    <button v-else @click="stopContainer(c)" class="px-2 py-1 text-[11px] bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg">
+                      <i class="fa-solid fa-stop"></i> Stop
+                    </button>
+                    <button @click="restartContainer(c)" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
+                      <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                    <button @click="viewContainerLogs(c)" class="px-2 py-1 text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg">
+                      <i class="fa-solid fa-file-lines"></i> Logs
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 4: DOMAINS & REVERSE PROXY -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'domains'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="font-bold text-slate-900 text-base flex items-center">
+                <i class="fa-solid fa-network-wired text-cyan-600 mr-2"></i> Global Domain & Reverse Proxy Routing
+              </h3>
+              <p class="text-xs text-slate-500 mt-0.5">Map public domain names to internal tenant container ports with automated Let's Encrypt SSL.</p>
+            </div>
+            <button @click="openBindDomainModal" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 shadow-sm shadow-cyan-600/20">
+              <i class="fa-solid fa-plus"></i>
+              <span>Bind Domain</span>
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                <tr>
+                  <th class="p-4">DOMAIN</th>
+                  <th class="p-4">TENANT</th>
+                  <th class="p-4">EXTERNAL PORT</th>
+                  <th class="p-4">TARGET PORT</th>
+                  <th class="p-4">SSL STATUS</th>
+                  <th class="p-4 text-right">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 text-slate-700">
+                <tr v-if="domains.length === 0">
+                  <td colspan="6" class="p-8 text-center text-slate-400">
+                    No domains configured yet. Click "Bind Domain" to setup reverse proxy routing!
+                  </td>
+                </tr>
+                <tr v-for="d in domains" :key="d.id" class="hover:bg-slate-50 transition">
+                  <td class="p-4 font-semibold text-slate-900">
+                    <a :href="'http://' + d.domain + (d.external_port !== 80 && d.external_port !== 443 ? ':' + d.external_port : '')" target="_blank" class="text-cyan-600 hover:underline">
+                      {{ d.domain }}
+                    </a>
+                  </td>
+                  <td class="p-4">
+                    <span class="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[11px]">{{ d.tenant_username || 'unassigned' }}</span>
+                  </td>
+                  <td class="p-4 font-mono text-slate-600">:{{ d.external_port }}</td>
+                  <td class="p-4 font-mono text-slate-600">127.0.0.1:{{ d.target_container_port }}</td>
+                  <td class="p-4">
+                    <span v-if="d.enable_ssl" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <i class="fa-solid fa-lock text-[9px] mr-1"></i> HTTPS Active
+                    </span>
+                    <span v-else class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      HTTP Only
+                    </span>
+                  </td>
+                  <td class="p-4 text-right space-x-1.5">
+                    <button @click="openSSLModal(d)" title="Manage SSL" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
+                      <i class="fa-solid fa-shield-halved"></i> SSL
+                    </button>
+                    <button @click="viewDomainLogs(d.domain)" title="View Nginx Logs" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
+                      <i class="fa-solid fa-file-waveform"></i> Logs
+                    </button>
+                    <button @click="openEditDomainModal(d)" title="Edit Port/SSL" class="px-2 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
+                      <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button @click="deleteDomain(d.domain)" title="Delete Domain" class="px-2 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg">
+                      <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 5: SECURITY (FIREWALL & FAIL2BAN) -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'security'" class="space-y-6">
+          <!-- Top Tabs -->
+          <div class="flex items-center space-x-2 border-b border-slate-200 pb-2">
+            <button @click="secSubTab = 'firewall'" :class="secSubTab === 'firewall' ? 'bg-white shadow-sm font-bold text-amber-700 border border-slate-200' : 'text-slate-600 hover:bg-slate-100'" class="px-4 py-2 rounded-xl text-xs transition">
+              <i class="fa-solid fa-shield-virus mr-1.5"></i> UFW Firewall
+            </button>
+            <button @click="secSubTab = 'fail2ban'" :class="secSubTab === 'fail2ban' ? 'bg-white shadow-sm font-bold text-amber-700 border border-slate-200' : 'text-slate-600 hover:bg-slate-100'" class="px-4 py-2 rounded-xl text-xs transition">
+              <i class="fa-solid fa-user-shield mr-1.5"></i> Fail2ban Intrusion Defense
+            </button>
+          </div>
+
+          <!-- Subtab 1: Firewall -->
+          <div v-if="secSubTab === 'firewall'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h3 class="font-bold text-slate-900 text-base">UFW Firewall Rules</h3>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold" :class="firewallStatus.enabled ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'">
+                    {{ firewallStatus.enabled ? 'Enabled' : 'Disabled' }}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">Control inbound traffic, open ports, and block unauthorized IPs.</p>
+              </div>
+              <div class="flex items-center space-x-2">
+                <button @click="toggleFirewall(!firewallStatus.enabled)" class="px-3 py-1.5 text-xs font-semibold rounded-xl transition border" :class="firewallStatus.enabled ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300' : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'">
+                  {{ firewallStatus.enabled ? 'Disable Firewall' : 'Enable Firewall' }}
+                </button>
+                <button @click="openAddRuleModal" class="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                  <i class="fa-solid fa-plus mr-1"></i> Add Rule
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th class="p-4">RULE #</th>
+                    <th class="p-4">DESTINATION (PORT)</th>
+                    <th class="p-4">ACTION</th>
+                    <th class="p-4">SOURCE (FROM)</th>
+                    <th class="p-4">COMMENT</th>
+                    <th class="p-4 text-right">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 text-slate-700">
+                  <tr v-if="!firewallStatus.rules || firewallStatus.rules.length === 0">
+                    <td colspan="6" class="p-8 text-center text-slate-400">No active firewall rules found.</td>
+                  </tr>
+                  <tr v-for="r in firewallStatus.rules" :key="r.number" class="hover:bg-slate-50 transition">
+                    <td class="p-4 font-mono font-bold text-slate-500">#{{ r.number }}</td>
+                    <td class="p-4 font-semibold text-slate-900">{{ r.to }}</td>
+                    <td class="p-4">
+                      <span class="px-2 py-0.5 rounded text-[10px] font-semibold" :class="r.action.includes('ALLOW') ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'">
+                        {{ r.action }}
+                      </span>
+                    </td>
+                    <td class="p-4 font-mono text-slate-600">{{ r.from }}</td>
+                    <td class="p-4 text-slate-500">{{ r.comment || '-' }}</td>
+                    <td class="p-4 text-right">
+                      <button @click="deleteFirewallRule(r.number)" class="px-2.5 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg">
+                        <i class="fa-solid fa-trash-can"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Subtab 2: Fail2ban -->
+          <div v-if="secSubTab === 'fail2ban'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h3 class="font-bold text-slate-900 text-base">Fail2ban Intrusion Defense</h3>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold" :class="fail2banStatus.active ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'">
+                    {{ fail2banStatus.active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">Automated brute-force ban defense across active jails: <strong>{{ (fail2banStatus.jails || []).join(', ') || 'none' }}</strong></p>
+              </div>
+              <button @click="openBanIPModal" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                <i class="fa-solid fa-ban mr-1"></i> Ban IP Manually
+              </button>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th class="p-4">JAIL</th>
+                    <th class="p-4">BANNED IP ADDRESS</th>
+                    <th class="p-4 text-right">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 text-slate-700">
+                  <tr v-if="!fail2banStatus.banned_list || fail2banStatus.banned_list.length === 0">
+                    <td colspan="3" class="p-8 text-center text-slate-400">
+                      No IP addresses are currently banned by Fail2ban.
+                    </td>
+                  </tr>
+                  <tr v-for="b in fail2banStatus.banned_list" :key="b.jail + b.ip" class="hover:bg-slate-50 transition">
+                    <td class="p-4 font-semibold text-slate-900">{{ b.jail }}</td>
+                    <td class="p-4 font-mono font-bold text-rose-700">{{ b.ip }}</td>
+                    <td class="p-4 text-right">
+                      <button @click="unbanIP(b.jail, b.ip)" class="px-3 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
+                        <i class="fa-solid fa-unlock mr-1"></i> Unban IP
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- VIEW 6: SETTINGS, TELEGRAM, SSH & UPDATES -->
+        <!-- ============================================================== -->
+        <div v-if="activeTab === 'settings'" class="space-y-6">
+          <!-- Settings Grid -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Panel Configuration -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
+                <i class="fa-solid fa-sliders text-amber-500 mr-2"></i> Control Plane Network Settings
+              </h3>
+              <p class="text-xs text-slate-500 mb-4">Core ports, port forward pool, and listening network addresses.</p>
+
+              <form @submit.prevent="savePanelSettings" class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Port</label>
+                    <input v-model.number="settingsForm.server.admin_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Developer User Port</label>
+                    <input v-model.number="settingsForm.server.user_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Container Port Min</label>
+                    <input v-model.number="settingsForm.ports.min_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Container Port Max</label>
+                    <input v-model.number="settingsForm.ports.max_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Network Driver</label>
+                  <select v-model="settingsForm.docker.network_driver" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                    <option value="pasta">pasta (High Throughput & Low CPU - Recommended)</option>
+                    <option value="slirp4netns">slirp4netns (Legacy)</option>
+                  </select>
+                </div>
+
+                <button type="submit" class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                  Save Network Configuration
+                </button>
+              </form>
+            </div>
+
+            <!-- Telegram Notifications -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
+                <i class="fa-brands fa-telegram text-sky-500 mr-2 text-lg"></i> Telegram Event Notifications
+              </h3>
+              <p class="text-xs text-slate-500 mb-4">Receive real-time security, login, and tenant provisioning alerts directly on Telegram.</p>
+
+              <form @submit.prevent="savePanelSettings" class="space-y-4">
+                <div class="flex items-center space-x-2 pb-1">
+                  <input v-model="settingsForm.telegram.enabled" type="checkbox" id="tgEnable" class="w-4 h-4 rounded text-sky-600 border-slate-300 focus:ring-0">
+                  <label for="tgEnable" class="text-xs font-semibold text-slate-700">Enable Telegram Alerts</label>
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Bot Token</label>
+                  <input v-model="settingsForm.telegram.bot_token" placeholder="123456789:ABCdefGhIJKlmNoPQRst" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                </div>
+
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Chat ID</label>
+                  <input v-model="settingsForm.telegram.chat_id" placeholder="-100123456789 or 987654321" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <label class="flex items-center space-x-2">
+                    <input v-model="settingsForm.telegram.notify_on_login" type="checkbox" class="w-3.5 h-3.5 rounded text-sky-600">
+                    <span>Admin Logins</span>
+                  </label>
+                  <label class="flex items-center space-x-2">
+                    <input v-model="settingsForm.telegram.notify_on_tenant_created" type="checkbox" class="w-3.5 h-3.5 rounded text-sky-600">
+                    <span>New Tenants</span>
+                  </label>
+                  <label class="flex items-center space-x-2">
+                    <input v-model="settingsForm.telegram.notify_on_ssl" type="checkbox" class="w-3.5 h-3.5 rounded text-sky-600">
+                    <span>SSL Certificates</span>
+                  </label>
+                  <label class="flex items-center space-x-2">
+                    <input v-model="settingsForm.telegram.notify_on_security" type="checkbox" class="w-3.5 h-3.5 rounded text-sky-600">
+                    <span>Security Events</span>
+                  </label>
+                </div>
+
+                <div class="flex items-center space-x-2 pt-1">
+                  <button type="button" @click="sendTelegramTest" :disabled="testingTg" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition border border-slate-200 flex-1">
+                    {{ testingTg ? 'Sending...' : 'Send Test Notification' }}
+                  </button>
+                  <button type="submit" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs rounded-xl transition flex-1 shadow-sm">
+                    Save Telegram
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Host SSH Port Configuration -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
+                <i class="fa-solid fa-terminal text-emerald-600 mr-2"></i> Host SSH Port Management
+              </h3>
+              <p class="text-xs text-slate-500 mb-4">Safely modify the OpenSSH listening port with automated UFW allow and syntax validation.</p>
+
+              <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl mb-4 text-xs flex items-center justify-between">
+                <span class="text-slate-600">Current Active SSH Port:</span>
+                <span class="font-mono font-bold text-slate-900 px-2 py-0.5 bg-white border border-slate-200 rounded">:{{ currentSSHPort }}</span>
+              </div>
+
+              <form @submit.prevent="changeSSHPort" class="space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">New SSH Port</label>
+                  <input v-model.number="newSSHPort" type="number" required min="1" max="65535" placeholder="e.g. 2222" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  <span class="text-[11px] text-slate-400 mt-1 block">The panel will automatically open this port in UFW before restarting SSH.</span>
+                </div>
+                <button type="submit" :disabled="changingSSH" class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                  {{ changingSSH ? 'Updating Port...' : 'Change SSH Port Safely' }}
+                </button>
+              </form>
+            </div>
+
+            <!-- Admin Profile & Security -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
+                <i class="fa-solid fa-user-gear text-indigo-600 mr-2"></i> Admin Account Credentials
+              </h3>
+              <p class="text-xs text-slate-500 mb-4">Update administrator email or change login password.</p>
+
+              <form @submit.prevent="updateAdminPassword" class="space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Change Admin Password</label>
+                  <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New strong password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                </div>
+                <button type="submit" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                  Update Password
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- Self-Update & Version Section -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h3 class="font-bold text-slate-900 text-base">Bee Panel Self-Update & Version</h3>
+                  <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">{{ versionInfo.version }}</span>
+                </div>
+                <p class="text-xs text-slate-500 mt-1">Arch: {{ versionInfo.arch }} | OS: {{ versionInfo.os }} | Runtime: {{ versionInfo.go_version }}</p>
+              </div>
+
+              <div class="flex items-center space-x-2">
+                <button @click="checkForUpdate" :disabled="checkingUpdate" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs rounded-xl transition border border-slate-300 flex items-center space-x-1.5">
+                  <i class="fa-solid fa-cloud-arrow-down" :class="{ 'animate-bounce': checkingUpdate }"></i>
+                  <span>{{ checkingUpdate ? 'Checking GitHub...' : 'Check For Updates' }}</span>
+                </button>
+                <button v-if="updateAvailable" @click="performUpdate" :disabled="updatingNow" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition shadow-md flex items-center space-x-1.5">
+                  <i class="fa-solid fa-download"></i>
+                  <span>{{ updatingNow ? 'Installing...' : 'Update To ' + latestRelease.latest_version }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="latestRelease" class="mt-4 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-slate-800">Latest Release: {{ latestRelease.latest_version }}</span>
+                <span class="text-slate-500">{{ latestRelease.published_at }}</span>
+              </div>
+              <p class="text-slate-600 whitespace-pre-wrap font-mono text-[11px] max-h-32 overflow-y-auto bg-white p-2.5 rounded border border-slate-200">{{ latestRelease.release_notes }}</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- ============================================================== -->
+    <!-- MODALS SECTION -->
+    <!-- ============================================================== -->
+
+    <!-- Modal 1: Create User Modal -->
+    <div v-if="modals.createUser" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Provision New Tenant User</h3>
+        <p class="text-xs text-slate-500 mb-4">Automatically creates an unprivileged Linux user, SubUID/SubGID mapping, SSH keys, and Rootless Docker daemon.</p>
+
+        <form @submit.prevent="handleCreateUser" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Username</label>
+            <input v-model="createUserForm.username" required pattern="^[a-z_][a-z0-9_-]*$" placeholder="e.g. dev1, app_prod" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            <span class="text-[10px] text-slate-400 mt-0.5 block">Lowercase alphanumeric, underscores, and dashes only.</span>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Custom Password (optional, blank = auto-generate)</label>
+            <input v-model="createUserForm.password" placeholder="Leave empty to generate secure random password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Custom SSH Public Key (optional, blank = auto-generate)</label>
+            <textarea v-model="createUserForm.public_key" rows="2" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5..." class="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono text-slate-900"></textarea>
+          </div>
+
+          <div v-if="modalError" class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-xs">
+            {{ modalError }}
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" @click="modals.createUser = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" :disabled="creatingUser" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs disabled:opacity-50">
+              {{ creatingUser ? 'Provisioning...' : 'Provision User' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 2: User Credentials & Keys Modal (Full Key Viewer & Actions) -->
+    <div v-if="modals.credentials" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Credentials & Keys: {{ activeUser.username }}</h3>
+            <span class="text-xs text-slate-500">UID: {{ activeUser.uid }} | Socket: {{ activeUser.docker_socket }}</span>
+          </div>
+          <button @click="modals.credentials = false" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">SSH & System Password:</label>
+          <div class="flex items-center space-x-2">
+            <input readonly :value="activeUser.password" class="w-full px-3 py-1.5 bg-slate-50 font-mono text-xs text-slate-800 rounded-lg border border-slate-300">
+            <button @click="copyText(activeUser.password)" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200">Copy</button>
+          </div>
+        </div>
+
+        <div v-if="activeUser.private_key">
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-xs font-semibold text-slate-700">Ed25519 Private Key (OpenSSH format):</label>
+            <button @click="downloadFile(activeUser.username + '_id_ed25519', activeUser.private_key)" class="text-xs text-indigo-600 hover:underline">
+              <i class="fa-solid fa-download mr-1"></i>Download .pem
+            </button>
+          </div>
+          <textarea readonly rows="6" :value="activeUser.private_key" class="w-full p-2.5 bg-slate-50 font-mono text-[11px] text-slate-800 rounded-lg border border-slate-300"></textarea>
+          <button @click="copyText(activeUser.private_key)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200">
+            <i class="fa-solid fa-copy mr-1"></i> Copy Private Key
+          </button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Public Key (authorized_keys):</label>
+          <textarea readonly rows="2" :value="activeUser.public_key" class="w-full p-2 bg-slate-50 font-mono text-[11px] text-slate-700 rounded-lg border border-slate-300"></textarea>
+          <button @click="copyText(activeUser.public_key)" class="mt-1 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg border border-slate-200">
+            <i class="fa-solid fa-copy mr-1"></i> Copy Public Key
+          </button>
+        </div>
+
+        <!-- Rotate Key / Change Password Section -->
+        <div class="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+            <span class="text-xs font-bold text-slate-800 block">Change Password</span>
+            <input v-model="changeUserPwdInput" type="password" placeholder="New password" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-xs">
+            <button @click="submitChangeUserPwd" class="w-full py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold">Update Password</button>
+          </div>
+
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+            <span class="text-xs font-bold text-slate-800 block">Rotate SSH Key</span>
+            <button @click="rotateUserSSHKey" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold">Generate New Ed25519 Keypair</button>
+          </div>
+        </div>
+
+        <div class="pt-2 text-right">
+          <button @click="modals.credentials = false" class="px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 3: Bind Domain Modal -->
+    <div v-if="modals.bindDomain" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Bind Domain to Container</h3>
+        <p class="text-xs text-slate-500 mb-4">Direct incoming web traffic to an internal tenant container port.</p>
+
+        <form @submit.prevent="handleBindDomain" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Assign to Tenant</label>
+            <select v-model="bindDomainForm.tenant_id" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.username }} (UID {{ t.uid }})</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Domain FQDN</label>
+            <input v-model="bindDomainForm.domain" required placeholder="app.example.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">External Listen Port</label>
+              <input v-model.number="bindDomainForm.external_port" type="number" required placeholder="80" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Container Port</label>
+              <input v-model.number="bindDomainForm.target_container_port" type="number" required placeholder="8080" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 pt-1">
+            <input v-model="bindDomainForm.enable_ssl" type="checkbox" id="sslBindCheck" class="w-4 h-4 rounded text-cyan-600 border-slate-300">
+            <label for="sslBindCheck" class="text-xs font-medium text-slate-700">Issue Let's Encrypt SSL Certificate</label>
+          </div>
+
+          <div v-if="modalError" class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-600 text-xs">
+            {{ modalError }}
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" @click="modals.bindDomain = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" :disabled="bindingDomain" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl text-xs disabled:opacity-50">
+              {{ bindingDomain ? 'Applying...' : 'Bind Domain' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 4: Domain Logs Modal -->
+    <div v-if="modals.domainLogs" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Nginx Logs: {{ activeDomainLogs.domain }}</h3>
+            <span class="text-xs text-slate-500">Live web server log stream</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <select v-model="activeDomainLogs.type" @change="fetchDomainLogs" class="px-2 py-1 bg-slate-100 border border-slate-200 rounded text-xs">
+              <option value="access">Access Log</option>
+              <option value="error">Error Log</option>
+            </select>
+            <button @click="fetchDomainLogs" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs"><i class="fa-solid fa-arrows-rotate"></i></button>
+            <button @click="modals.domainLogs = false" class="text-slate-400 hover:text-slate-600 text-lg ml-2">&times;</button>
+          </div>
+        </div>
+
+        <div class="bg-slate-900 text-slate-100 p-3 rounded-xl font-mono text-[11px] h-96 overflow-y-auto whitespace-pre-wrap">
+          <div v-for="(line, idx) in activeDomainLogs.lines" :key="idx" class="leading-relaxed">{{ line }}</div>
+          <div v-if="!activeDomainLogs.lines || activeDomainLogs.lines.length === 0" class="text-slate-500">(No log entries found)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 5: Container Logs Modal -->
+    <div v-if="modals.containerLogs" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Container Logs: {{ activeContainerLogs.name }}</h3>
+            <span class="text-xs text-slate-500">Tenant: {{ activeContainerLogs.tenant }} | ID: {{ activeContainerLogs.id }}</span>
+          </div>
+          <button @click="modals.containerLogs = false" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+        </div>
+
+        <div class="bg-slate-900 text-slate-100 p-3 rounded-xl font-mono text-[11px] h-96 overflow-y-auto whitespace-pre-wrap">
+          {{ activeContainerLogs.content || '(No log output)' }}
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 6: Add Firewall Rule Modal -->
+    <div v-if="modals.addFwRule" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Add Firewall Rule</h3>
+        <p class="text-xs text-slate-500 mb-4">Open or block a port or port range in UFW.</p>
+
+        <form @submit.prevent="submitAddFwRule" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Port / Range</label>
+            <input v-model="fwRuleForm.port" required placeholder="e.g. 8080 or 8000:9000" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Protocol</label>
+              <select v-model="fwRuleForm.protocol" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                <option value="tcp">TCP</option>
+                <option value="udp">UDP</option>
+                <option value="any">Any (TCP/UDP)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Action</label>
+              <select v-model="fwRuleForm.action" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                <option value="allow">ALLOW</option>
+                <option value="deny">DENY</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Comment (Optional)</label>
+            <input v-model="fwRuleForm.comment" placeholder="e.g. Redis internal port" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" @click="modals.addFwRule = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs">Add Rule</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 7: Ban IP Modal -->
+    <div v-if="modals.banIP" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Ban IP in Fail2ban</h3>
+        <p class="text-xs text-slate-500 mb-4">Immediately block an offending IP address across the chosen jail.</p>
+
+        <form @submit.prevent="submitBanIP" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Jail</label>
+            <select v-model="banIPForm.jail" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <option v-for="j in fail2banStatus.jails" :key="j" :value="j">{{ j }}</option>
+              <option value="sshd">sshd</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">IP Address to Ban</label>
+            <input v-model="banIPForm.ip" required placeholder="e.g. 192.168.1.50" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" @click="modals.banIP = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs">Ban IP</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, computed, onMounted } = Vue;
+    createApp({
+      setup() {
+        const loading = ref(true);
+        const isSetup = ref(true);
+        const token = ref(localStorage.getItem('bee_token') || '');
+        const currentUser = ref(localStorage.getItem('bee_user') || '');
+        const errorMsg = ref('');
+        const modalError = ref('');
+        const submitting = ref(false);
+        const activeTab = ref('dashboard');
+        const secSubTab = ref('firewall');
+
+        const setupForm = ref({ username: 'admin', email: '', password: '' });
+        const loginForm = ref({ username: '', password: '' });
+        const metrics = ref({ cpu_usage_percent: 0, cpu_cores: 1, memory_total_mb: 0, memory_used_mb: 0, memory_free_mb: 0, swap_total_mb: 0, swap_used_mb: 0, disk_total_gb: 0, disk_used_gb: 0, disk_free_gb: 0 });
+        const tenants = ref([]);
+        const containers = ref([]);
+        const domains = ref([]);
+        const firewallStatus = ref({ enabled: false, rules: [] });
+        const fail2banStatus = ref({ active: false, jails: [], banned_list: [] });
+        const settingsForm = ref({ server: {}, ports: {}, proxy: {}, docker: {}, telegram: {} });
+        const versionInfo = ref({ version: 'v0.1.0', arch: '', os: '', go_version: '' });
+        const latestRelease = ref(null);
+        const updateAvailable = ref(false);
+        const checkingUpdate = ref(false);
+        const updatingNow = ref(false);
+        const currentSSHPort = ref(22);
+        const newSSHPort = ref(22);
+        const changingSSH = ref(false);
+        const newAdminPassword = ref('');
+        const testingTg = ref(false);
+
+        // Modals state
+        const modals = ref({
+          createUser: false,
+          credentials: false,
+          bindDomain: false,
+          domainLogs: false,
+          containerLogs: false,
+          addFwRule: false,
+          banIP: false
+        });
+
+        const activeUser = ref({});
+        const createUserForm = ref({ username: '', password: '', public_key: '' });
+        const creatingUser = ref(false);
+        const changeUserPwdInput = ref('');
+        const bindDomainForm = ref({ tenant_id: 1, domain: '', external_port: 80, target_container_port: 8080, enable_ssl: false });
+        const bindingDomain = ref(false);
+        const activeDomainLogs = ref({ domain: '', type: 'access', lines: [] });
+        const activeContainerLogs = ref({ name: '', tenant: '', id: '', content: '' });
+        const fwRuleForm = ref({ port: '', protocol: 'tcp', action: 'allow', comment: '' });
+        const banIPForm = ref({ jail: 'sshd', ip: '' });
+        const loadingContainers = ref(false);
+
+        const ramUsagePercent = computed(() => metrics.value.memory_total_mb ? Math.round((metrics.value.memory_used_mb / metrics.value.memory_total_mb) * 100) : 0);
+        const swapUsagePercent = computed(() => metrics.value.swap_total_mb ? Math.round((metrics.value.swap_used_mb / metrics.value.swap_total_mb) * 100) : 0);
+        const diskUsagePercent = computed(() => metrics.value.disk_total_gb ? Math.round((metrics.value.disk_used_gb / metrics.value.disk_total_gb) * 100) : 0);
+
+        const checkSetup = async () => {
+          try {
+            const res = await fetch('/api/setup/status');
+            const data = await res.json();
+            isSetup.value = data.is_setup;
+            if (isSetup.value && token.value) {
+              await refreshData();
+            }
+          } catch (e) {
+            console.error('Check setup error:', e);
+          } finally {
+            loading.value = false;
+          }
+        };
+
+        const handleRegister = async () => {
+          submitting.value = true;
+          errorMsg.value = '';
+          try {
+            const res = await fetch('/api/setup/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(setupForm.value)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Registration failed');
+            token.value = data.token;
+            currentUser.value = data.username;
+            localStorage.setItem('bee_token', data.token);
+            localStorage.setItem('bee_user', data.username);
+            isSetup.value = true;
+            await refreshData();
+          } catch (e) {
+            errorMsg.value = e.message;
+          } finally {
+            submitting.value = false;
+          }
+        };
+
+        const handleLogin = async () => {
+          submitting.value = true;
+          errorMsg.value = '';
+          try {
+            const res = await fetch('/api/admin/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(loginForm.value)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Invalid credentials');
+            token.value = data.token;
+            currentUser.value = data.username;
+            localStorage.setItem('bee_token', data.token);
+            localStorage.setItem('bee_user', data.username);
+            await refreshData();
+          } catch (e) {
+            errorMsg.value = e.message;
+          } finally {
+            submitting.value = false;
+          }
+        };
+
+        const logout = () => {
+          token.value = '';
+          currentUser.value = '';
+          localStorage.removeItem('bee_token');
+          localStorage.removeItem('bee_user');
+        };
+
+        const authHeaders = () => ({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token.value
+        });
+
+        const refreshData = async () => {
+          if (!token.value) return;
+          try {
+            const [mRes, tRes, dRes, fwRes, f2bRes, setRes, verRes] = await Promise.all([
+              fetch('/api/admin/system/metrics', { headers: authHeaders() }),
+              fetch('/api/admin/tenants', { headers: authHeaders() }),
+              fetch('/api/admin/domains', { headers: authHeaders() }),
+              fetch('/api/admin/security/firewall/status', { headers: authHeaders() }),
+              fetch('/api/admin/security/fail2ban/status', { headers: authHeaders() }),
+              fetch('/api/admin/settings', { headers: authHeaders() }),
+              fetch('/api/admin/system/version', { headers: authHeaders() })
+            ]);
+
+            if (mRes.ok) metrics.value = await mRes.json();
+            if (tRes.ok) tenants.value = await tRes.json();
+            if (dRes.ok) domains.value = await dRes.json();
+            if (fwRes.ok) firewallStatus.value = await fwRes.json();
+            if (f2bRes.ok) fail2banStatus.value = await f2bRes.json();
+            if (setRes.ok) {
+              const s = await setRes.json();
+              settingsForm.value = s.config || {};
+              currentSSHPort.value = s.ssh_port || 22;
+              newSSHPort.value = s.ssh_port || 22;
+            }
+            if (verRes.ok) versionInfo.value = await verRes.json();
+          } catch (e) {
+            console.error('Refresh error:', e);
+          }
+        };
+
+        const refreshContainers = async () => {
+          loadingContainers.value = true;
+          try {
+            const res = await fetch('/api/admin/docker/containers', { headers: authHeaders() });
+            if (res.ok) containers.value = await res.json();
+          } catch (e) {
+            console.error('Containers error:', e);
+          } finally {
+            loadingContainers.value = false;
+          }
+        };
+
+        // Users actions
+        const openCreateUserModal = () => {
+          createUserForm.value = { username: '', password: '', public_key: '' };
+          modalError.value = '';
+          modals.value.createUser = true;
+        };
+
+        const handleCreateUser = async () => {
+          creatingUser.value = true;
+          modalError.value = '';
+          try {
+            const res = await fetch('/api/admin/tenants', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify(createUserForm.value)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to provision tenant');
+            modals.value.createUser = false;
+            activeUser.value = data;
+            modals.value.credentials = true;
+            await refreshData();
+          } catch (e) {
+            modalError.value = e.message;
+          } finally {
+            creatingUser.value = false;
+          }
+        };
+
+        const viewUserCredentials = async (t) => {
+          try {
+            const res = await fetch(`/api/admin/tenants/${t.username}`, { headers: authHeaders() });
+            if (res.ok) {
+              activeUser.value = await res.json();
+            } else {
+              activeUser.value = t;
+            }
+            changeUserPwdInput.value = '';
+            modals.value.credentials = true;
+          } catch (e) {
+            activeUser.value = t;
+            modals.value.credentials = true;
+          }
+        };
+
+        const submitChangeUserPwd = async () => {
+          if (!changeUserPwdInput.value) return;
+          try {
+            const res = await fetch(`/api/admin/tenants/${activeUser.value.username}/password`, {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({ password: changeUserPwdInput.value })
+            });
+            if (res.ok) {
+              activeUser.value.password = changeUserPwdInput.value;
+              changeUserPwdInput.value = '';
+              alert('Password updated successfully!');
+            }
+          } catch (e) {
+            alert('Failed to update password: ' + e.message);
+          }
+        };
+
+        const rotateUserSSHKey = async () => {
+          if (!confirm(`Rotate and generate a new Ed25519 SSH Keypair for ${activeUser.value.username}?`)) return;
+          try {
+            const res = await fetch(`/api/admin/tenants/${activeUser.value.username}/keys`, {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({})
+            });
+            const data = await res.json();
+            if (res.ok) {
+              activeUser.value.private_key = data.private_key;
+              activeUser.value.public_key = data.public_key;
+              alert('New Ed25519 SSH Key generated and installed!');
+            }
+          } catch (e) {
+            alert('Key rotation failed: ' + e.message);
+          }
+        };
+
+        const toggleUserStatus = async (t) => {
+          const newStatus = t.status === 'active' ? 'suspended' : 'active';
+          if (!confirm(`Set user '${t.username}' to ${newStatus.toUpperCase()}?`)) return;
+          try {
+            const res = await fetch(`/api/admin/tenants/${t.username}/status`, {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({ status: newStatus })
+            });
+            if (res.ok) await refreshData();
+          } catch (e) {
+            alert('Status update failed: ' + e.message);
+          }
+        };
+
+        const restartUserDocker = async (username) => {
+          try {
+            const res = await fetch(`/api/admin/tenants/${username}/restart-docker`, {
+              method: 'POST',
+              headers: authHeaders()
+            });
+            if (res.ok) alert(`Rootless Docker daemon for '${username}' restarted!`);
+          } catch (e) {
+            alert('Restart failed: ' + e.message);
+          }
+        };
+
+        const confirmDeleteUser = async (username) => {
+          if (!confirm(`Permanently dismantle tenant '${username}' and purge all data and containers?`)) return;
+          try {
+            const res = await fetch(`/api/admin/tenants/${username}`, {
+              method: 'DELETE',
+              headers: authHeaders()
+            });
+            if (res.ok) await refreshData();
+          } catch (e) {
+            alert('Deletion failed: ' + e.message);
+          }
+        };
+
+        // Container actions
+        const startContainer = async (c) => {
+          await fetch(`/api/admin/docker/containers/${c.tenant}/${c.id}/start`, { method: 'POST', headers: authHeaders() });
+          await refreshContainers();
+        };
+
+        const stopContainer = async (c) => {
+          await fetch(`/api/admin/docker/containers/${c.tenant}/${c.id}/stop`, { method: 'POST', headers: authHeaders() });
+          await refreshContainers();
+        };
+
+        const restartContainer = async (c) => {
+          await fetch(`/api/admin/docker/containers/${c.tenant}/${c.id}/restart`, { method: 'POST', headers: authHeaders() });
+          await refreshContainers();
+        };
+
+        const viewContainerLogs = async (c) => {
+          activeContainerLogs.value = { name: c.display_name, tenant: c.tenant, id: c.short_id, content: 'Loading logs...' };
+          modals.value.containerLogs = true;
+          try {
+            const res = await fetch(`/api/admin/docker/containers/${c.tenant}/${c.id}/logs?lines=300`, { headers: authHeaders() });
+            const data = await res.json();
+            activeContainerLogs.value.content = data.logs || '(No logs returned)';
+          } catch (e) {
+            activeContainerLogs.value.content = 'Error loading logs: ' + e.message;
+          }
+        };
+
+        // Domain actions
+        const openBindDomainModal = () => {
+          bindDomainForm.value = {
+            tenant_id: tenants.value.length > 0 ? tenants.value[0].id : 1,
+            domain: '',
+            external_port: 80,
+            target_container_port: 8080,
+            enable_ssl: false
+          };
+          modalError.value = '';
+          modals.value.bindDomain = true;
+        };
+
+        const handleBindDomain = async () => {
+          bindingDomain.value = true;
+          modalError.value = '';
+          try {
+            const res = await fetch('/api/admin/domains', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify(bindDomainForm.value)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to bind domain');
+            modals.value.bindDomain = false;
+            await refreshData();
+          } catch (e) {
+            modalError.value = e.message;
+          } finally {
+            bindingDomain.value = false;
+          }
+        };
+
+        const deleteDomain = async (domain) => {
+          if (!confirm(`Delete reverse proxy configuration for domain '${domain}'?`)) return;
+          try {
+            await fetch(`/api/admin/domains/${domain}`, { method: 'DELETE', headers: authHeaders() });
+            await refreshData();
+          } catch (e) {
+            alert('Failed to delete domain: ' + e.message);
+          }
+        };
+
+        const openSSLModal = async (d) => {
+          if (confirm(`Trigger immediate Let's Encrypt SSL renewal for '${d.domain}'?`)) {
+            try {
+              const res = await fetch(`/api/admin/domains/${d.domain}/ssl/renew`, { method: 'POST', headers: authHeaders() });
+              const data = await res.json();
+              if (res.ok) {
+                alert('SSL renewed successfully!');
+                await refreshData();
+              } else {
+                alert('Renewal failed: ' + data.error);
+              }
+            } catch (e) {
+              alert('SSL renewal error: ' + e.message);
+            }
+          }
+        };
+
+        const viewDomainLogs = async (domain) => {
+          activeDomainLogs.value.domain = domain;
+          activeDomainLogs.value.type = 'access';
+          activeDomainLogs.value.lines = ['Loading logs...'];
+          modals.value.domainLogs = true;
+          await fetchDomainLogs();
+        };
+
+        const fetchDomainLogs = async () => {
+          try {
+            const res = await fetch(`/api/admin/domains/${activeDomainLogs.value.domain}/logs?type=${activeDomainLogs.value.type}&lines=200`, { headers: authHeaders() });
+            const data = await res.json();
+            activeDomainLogs.value.lines = data.lines || [];
+          } catch (e) {
+            activeDomainLogs.value.lines = ['Error fetching logs: ' + e.message];
+          }
+        };
+
+        // Security actions
+        const toggleFirewall = async (enable) => {
+          try {
+            await fetch('/api/admin/security/firewall/toggle', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({ enable })
+            });
+            await refreshData();
+          } catch (e) {
+            alert('Firewall toggle failed: ' + e.message);
+          }
+        };
+
+        const openAddRuleModal = () => {
+          fwRuleForm.value = { port: '', protocol: 'tcp', action: 'allow', comment: '' };
+          modals.value.addFwRule = true;
+        };
+
+        const submitAddFwRule = async () => {
+          try {
+            const res = await fetch('/api/admin/security/firewall/rules', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify(fwRuleForm.value)
+            });
+            if (res.ok) {
+              modals.value.addFwRule = false;
+              await refreshData();
+            }
+          } catch (e) {
+            alert('Failed to add firewall rule: ' + e.message);
+          }
+        };
+
+        const deleteFirewallRule = async (ruleNum) => {
+          if (!confirm(`Delete firewall rule #${ruleNum}?`)) return;
+          try {
+            await fetch(`/api/admin/security/firewall/rules/${ruleNum}`, { method: 'DELETE', headers: authHeaders() });
+            await refreshData();
+          } catch (e) {
+            alert('Delete rule error: ' + e.message);
+          }
+        };
+
+        const openBanIPModal = () => {
+          banIPForm.value = { jail: 'sshd', ip: '' };
+          modals.value.banIP = true;
+        };
+
+        const submitBanIP = async () => {
+          try {
+            const res = await fetch('/api/admin/security/fail2ban/ban', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify(banIPForm.value)
+            });
+            if (res.ok) {
+              modals.value.banIP = false;
+              await refreshData();
+            }
+          } catch (e) {
+            alert('Ban IP failed: ' + e.message);
+          }
+        };
+
+        const unbanIP = async (jail, ip) => {
+          try {
+            await fetch('/api/admin/security/fail2ban/unban', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({ jail, ip })
+            });
+            await refreshData();
+          } catch (e) {
+            alert('Unban failed: ' + e.message);
+          }
+        };
+
+        // Settings actions
+        const savePanelSettings = async () => {
+          try {
+            const res = await fetch('/api/admin/settings', {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify(settingsForm.value)
+            });
+            if (res.ok) alert('Settings saved successfully!');
+          } catch (e) {
+            alert('Save failed: ' + e.message);
+          }
+        };
+
+        const sendTelegramTest = async () => {
+          testingTg.value = true;
+          try {
+            const res = await fetch('/api/admin/settings/telegram/test', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({
+                bot_token: settingsForm.value.telegram.bot_token,
+                chat_id: settingsForm.value.telegram.chat_id
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert('Test message sent to Telegram successfully!');
+            } else {
+              alert('Telegram error: ' + data.error);
+            }
+          } catch (e) {
+            alert('Telegram test failed: ' + e.message);
+          } finally {
+            testingTg.value = false;
+          }
+        };
+
+        const changeSSHPort = async () => {
+          if (!confirm(`Change OpenSSH listening port to ${newSSHPort.value}? UFW will open this port before restarting sshd.`)) return;
+          changingSSH.value = true;
+          try {
+            const res = await fetch('/api/admin/settings/ssh/port', {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({ port: newSSHPort.value })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              currentSSHPort.value = newSSHPort.value;
+              alert('SSH port updated to :' + newSSHPort.value + ' and service reloaded!');
+            } else {
+              alert('Change port error: ' + data.error);
+            }
+          } catch (e) {
+            alert('Change port error: ' + e.message);
+          } finally {
+            changingSSH.value = false;
+          }
+        };
+
+        const updateAdminPassword = async () => {
+          try {
+            const res = await fetch('/api/admin/settings/admin/password', {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({ new_password: newAdminPassword.value })
+            });
+            if (res.ok) {
+              newAdminPassword.value = '';
+              alert('Admin password updated successfully!');
+            }
+          } catch (e) {
+            alert('Password update error: ' + e.message);
+          }
+        };
+
+        const checkForUpdate = async () => {
+          checkingUpdate.value = true;
+          try {
+            const res = await fetch('/api/admin/system/check-update', { method: 'POST', headers: authHeaders() });
+            if (res.ok) {
+              latestRelease.value = await res.json();
+              updateAvailable.value = latestRelease.value.has_update;
+              if (!updateAvailable.value) {
+                alert('You are running the latest version: ' + versionInfo.value.version);
+              }
+            }
+          } catch (e) {
+            alert('Update check error: ' + e.message);
+          } finally {
+            checkingUpdate.value = false;
+          }
+        };
+
+        const performUpdate = async () => {
+          if (!confirm(`Apply update to ${latestRelease.value.latest_version}? The panel daemon will restart.`)) return;
+          updatingNow.value = true;
+          try {
+            const res = await fetch('/api/admin/system/update', { method: 'POST', headers: authHeaders() });
+            if (res.ok) {
+              alert('Update downloaded! The daemon is restarting. Page will reload in 5 seconds.');
+              setTimeout(() => { window.location.reload(); }, 5000);
+            }
+          } catch (e) {
+            alert('Update execution error: ' + e.message);
+          } finally {
+            updatingNow.value = false;
+          }
+        };
+
+        // Helpers
+        const copyText = (txt) => {
+          navigator.clipboard.writeText(txt);
+          alert('Copied to clipboard!');
+        };
+
+        const downloadFile = (filename, text) => {
+          const blob = new Blob([text], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const formatDate = (isoStr) => {
+          if (!isoStr) return '';
+          return new Date(isoStr).toLocaleDateString();
+        };
+
+        const formatUptime = (sec) => {
+          if (!sec) return '0m';
+          const d = Math.floor(sec / 86400);
+          const h = Math.floor((sec % 86400) / 3600);
+          const m = Math.floor((sec % 3600) / 60);
+          if (d > 0) return `${d}d ${h}h`;
+          return `${h}h ${m}m`;
+        };
+
+        onMounted(() => {
+          checkSetup();
+          setInterval(() => {
+            if (token.value && activeTab.value === 'dashboard') {
+              fetch('/api/admin/system/metrics', { headers: authHeaders() }).then(r => r.json()).then(d => metrics.value = d).catch(() => {});
+            }
+          }, 4000);
+        });
+
+        return {
+          loading, isSetup, token, currentUser, errorMsg, modalError, submitting, activeTab, secSubTab,
+          setupForm, loginForm, metrics, tenants, containers, domains, firewallStatus, fail2banStatus,
+          settingsForm, versionInfo, latestRelease, updateAvailable, checkingUpdate, updatingNow,
+          currentSSHPort, newSSHPort, changingSSH, newAdminPassword, testingTg,
+          ramUsagePercent, swapUsagePercent, diskUsagePercent,
+          modals, activeUser, createUserForm, creatingUser, changeUserPwdInput, bindDomainForm, bindingDomain,
+          activeDomainLogs, activeContainerLogs, fwRuleForm, banIPForm, loadingContainers,
+          handleRegister, handleLogin, logout, refreshContainers,
+          openCreateUserModal, handleCreateUser, viewUserCredentials, submitChangeUserPwd, rotateUserSSHKey, toggleUserStatus, restartUserDocker, confirmDeleteUser,
+          startContainer, stopContainer, restartContainer, viewContainerLogs,
+          openBindDomainModal, handleBindDomain, deleteDomain, openSSLModal, viewDomainLogs, fetchDomainLogs,
+          toggleFirewall, openAddRuleModal, submitAddFwRule, deleteFirewallRule, openBanIPModal, submitBanIP, unbanIP,
+          savePanelSettings, sendTelegramTest, changeSSHPort, updateAdminPassword, checkForUpdate, performUpdate,
+          copyText, downloadFile, formatDate, formatUptime
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

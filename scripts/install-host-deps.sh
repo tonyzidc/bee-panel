@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Bee Panel - Host Dependencies & Optimization Installer
+# Bee Panel - Host Environment Preparation & Kernel Optimization
 # Target OS: Ubuntu 22.04 / 24.04 LTS, Debian 12+
 # ==============================================================================
 set -euo pipefail
 
 echo "=========================================================="
-echo "🐝 Bee Panel - Host Environment Preparation"
+echo "🐝 Bee Panel - Host Environment Preparation & Optimization"
 echo "=========================================================="
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "❌ Lỗi: Script này phải chạy dưới quyền root (sudo)!" >&2
+    echo "❌ Error: This script must be run as root (sudo)!" >&2
     exit 1
 fi
 
@@ -20,11 +20,11 @@ if [ -f /etc/os-release ]; then
     OS_ID="$ID"
     OS_VER="${VERSION_ID:-0}"
 else
-    echo "❌ Lỗi: Không thể xác định hệ điều hành!" >&2
+    echo "❌ Error: Cannot determine host operating system!" >&2
     exit 1
 fi
 
-echo "🔍 Phát hiện hệ điều hành: $NAME ($VERSION)"
+echo "🔍 Detected OS: $NAME ($VERSION)"
 SUPPORTED=false
 if [ "$OS_ID" = "ubuntu" ]; then
     MAJOR_VER=$(echo "$OS_VER" | cut -d. -f1)
@@ -39,14 +39,20 @@ elif [ "$OS_ID" = "debian" ]; then
 fi
 
 if [ "$SUPPORTED" = false ]; then
-    echo "❌ Lỗi: Bee Panel chỉ hỗ trợ Ubuntu 22.04+ và Debian 12+!" >&2
+    echo "❌ Error: Bee Panel currently only supports Ubuntu 22.04+ and Debian 12+!" >&2
     exit 1
 fi
 
-# 2. Swapfile Optimization (2GB for Low-RAM VPS)
+# 2. Automated OS Package Update & Upgrade
+echo "🔄 Updating package repositories and upgrading OS packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+
+# 3. Swapfile Optimization (2GB for Low-RAM VPS)
 CURRENT_SWAP=$(free -m | awk '/Swap:/ {print $2}')
 if [ "$CURRENT_SWAP" -lt 1024 ]; then
-    echo "⚙️ Thiết lập Swapfile 2GB để tối ưu RAM..."
+    echo "⚙️ Setting up 2GB Swapfile for memory optimization..."
     if [ ! -f /swapfile ]; then
         fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
         chmod 600 /swapfile
@@ -58,25 +64,44 @@ if [ "$CURRENT_SWAP" -lt 1024 ]; then
     else
         swapon /swapfile 2>/dev/null || true
     fi
-    # Set swappiness = 10
-    sysctl vm.swappiness=10
-    if ! grep -q 'vm.swappiness' /etc/sysctl.conf; then
-        echo 'vm.swappiness=10' >> /etc/sysctl.conf
-    fi
-    echo "✅ Đã kích hoạt Swapfile 2GB thành công."
+    echo "✅ 2GB Swapfile enabled successfully."
 else
-    echo "✅ Swapfile hiện có: ${CURRENT_SWAP}MB (Đạt yêu cầu)."
+    echo "✅ Existing swap space: ${CURRENT_SWAP}MB (Sufficient)."
 fi
 
-# 3. Disable heavy unused services on low memory
-echo "🧹 Dọn dẹp tiến trình tiêu tốn RAM..."
+# 4. Kernel Sysctl & Performance Tuning
+echo "⚡ Applying kernel sysctl optimizations..."
+cat << 'EOF' > /etc/sysctl.d/99-bee-panel.conf
+# Bee Panel Kernel Tuning
+vm.swappiness = 10
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+fs.file-max = 2097152
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 8192
+net.ipv4.ip_forward = 1
+net.ipv4.ip_unprivileged_port_start = 80
+EOF
+sysctl -p /etc/sysctl.d/99-bee-panel.conf 2>/dev/null || true
+
+# 5. File Descriptor & Security Limits
+echo "⚡ Applying system limits (nofile / nproc)..."
+cat << 'EOF' > /etc/security/limits.d/99-bee-panel.conf
+* soft nofile 65535
+* hard nofile 65535
+* soft nproc 65535
+* hard nproc 65535
+root soft nofile 65535
+root hard nofile 65535
+EOF
+
+# 6. Disable heavy unused services on low memory
+echo "🧹 Disabling redundant snapd background services..."
 systemctl stop snapd.service snapd.socket 2>/dev/null || true
 systemctl disable snapd.service snapd.socket 2>/dev/null || true
 
-# 4. Install Core System Tools & Networking Drivers
-echo "📦 Cập nhật package repositories và cài đặt dependencies..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
+# 7. Install Core System Tools, Security & Drivers
+echo "📦 Installing core system dependencies, fail2ban, ufw & network drivers..."
 apt-get install -y --no-install-recommends \
     apt-transport-https \
     ca-certificates \
@@ -90,10 +115,45 @@ apt-get install -y --no-install-recommends \
     certbot \
     python3-certbot-nginx \
     tar \
-    jq
+    jq \
+    ufw \
+    fail2ban
 
-# 5. Install Official Docker CE (Rootless packages)
-echo "🐳 Kiểm tra và cài đặt Docker Rootless Utilities..."
+# 8. Configure UFW Firewall Baseline
+echo "🛡️ Configuring baseline UFW firewall..."
+CURRENT_SSH_PORT=$(ss -tlnp | grep sshd | awk '{print $4}' | awk -F: '{print $NF}' | head -n1 || echo "22")
+if [ -z "$CURRENT_SSH_PORT" ]; then
+    CURRENT_SSH_PORT=22
+fi
+echo "   Allowing SSH port: $CURRENT_SSH_PORT/tcp..."
+ufw allow "$CURRENT_SSH_PORT/tcp" comment 'SSH Access' || true
+ufw allow 80/tcp comment 'HTTP Web' || true
+ufw allow 443/tcp comment 'HTTPS Web' || true
+ufw allow 8443/tcp comment 'Bee Panel Admin Console' || true
+ufw allow 3000/tcp comment 'Bee Panel Developer Portal' || true
+ufw allow 10000:60000/tcp comment 'Bee Panel Container Port Forward Pool' || true
+echo "y" | ufw enable || true
+
+# 9. Configure Fail2ban Baseline
+echo "🛡️ Configuring Fail2ban intrusion defense..."
+cat << 'EOF' > /etc/fail2ban/jail.local
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 5
+EOF
+systemctl enable --now fail2ban
+systemctl restart fail2ban || true
+
+# 10. Install Official Docker CE (Rootless packages)
+echo "🐳 Checking Docker Rootless packages..."
 if ! command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then
     mkdir -p /etc/apt/keyrings
     if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
@@ -110,34 +170,25 @@ if ! command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then
 fi
 
 # Disable default host root docker daemon to save RAM (each tenant runs rootless docker)
-echo "🛑 Tắt Docker daemon root mặc định (để tiết kiệm RAM)..."
+echo "🛑 Disabling default root docker service (to conserve host RAM)..."
 systemctl stop docker.service docker.socket containerd.service 2>/dev/null || true
 systemctl disable docker.service docker.socket containerd.service 2>/dev/null || true
 
-# 6. Verify pasta / passt
-if command -v pasta >/dev/null 2>&1; then
-    echo "✅ Pasta network driver đã sẵn sàng: $(pasta --version | head -n1)"
-else
-    echo "⚠️ Cảnh báo: pasta chưa tìm thấy trong PATH, kiểm tra lại gói passt!"
-fi
-
-# 7. Configure Nginx ACME webroot directory
-echo "🌐 Chuẩn bị thư mục Webroot cho ACME SSL..."
+# 11. Configure Nginx ACME Webroot Directory & Baseline
+echo "🌐 Preparing ACME SSL Webroot & Nginx baseline..."
 mkdir -p /var/www/bee-acme
 chown -R www-data:www-data /var/www/bee-acme
 chmod 755 /var/www/bee-acme
 
-# Nginx baseline optimization
-echo "⚡ Tối ưu cấu hình Nginx baseline..."
 cat << 'EOF' > /etc/nginx/conf.d/bee-baseline.conf
-# Bee Panel Nginx Low-Footprint Baseline
+# Bee Panel Nginx Baseline Configuration
 server_tokens off;
-client_max_body_size 64M;
+client_max_body_size 128M;
 EOF
 
 nginx -t && systemctl restart nginx
 systemctl enable nginx
 
 echo "=========================================================="
-echo "🎉 Hoàn tất chuẩn bị môi trường Host cho Bee Panel!"
+echo "🎉 Host environment preparation & optimization complete!"
 echo "=========================================================="

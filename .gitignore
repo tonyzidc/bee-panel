@@ -1,6 +1,8 @@
 # Binaries
 bin/
-dist/
+/dist/
+!web/admin/dist/**
+!web/user/dist/**
 *.exe
 *.exe~
 *.dll

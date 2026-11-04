@@ -9,6 +9,9 @@ server {
     listen 80;
     server_name {{ .Domain }};
 
+    access_log /var/log/nginx/{{ .Domain }}.access.log;
+    error_log /var/log/nginx/{{ .Domain }}.error.log warn;
+
     location /.well-known/acme-challenge/ {
         root {{ .AcmeWebroot }};
     }
@@ -22,6 +25,9 @@ server {
 server {
     listen {{ .ExternalPort }} ssl;
     server_name {{ .Domain }};
+
+    access_log /var/log/nginx/{{ .Domain }}.access.log;
+    error_log /var/log/nginx/{{ .Domain }}.error.log warn;
 
     ssl_certificate {{ .SSLCertPath }};
     ssl_certificate_key {{ .SSLKeyPath }};
@@ -48,6 +54,9 @@ server {
 server {
     listen {{ .ExternalPort }};
     server_name {{ .Domain }};
+
+    access_log /var/log/nginx/{{ .Domain }}.access.log;
+    error_log /var/log/nginx/{{ .Domain }}.error.log warn;
 
     location /.well-known/acme-challenge/ {
         root {{ .AcmeWebroot }};

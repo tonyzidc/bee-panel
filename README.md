@@ -1,79 +1,117 @@
 # 🐝 Bee Panel
 
 > **Multi-Tenant Rootless Server Provisioner & Dynamic Reverse Proxy Engine**  
-> Control Plane siêu nhẹ (Single Static Binary bằng Go) quản lý máy chủ Linux Ubuntu/Debian cấu hình tối thiểu từ 1 Core / 1GB RAM.
+> Ultra-lightweight Control Plane (Single Static Go Binary) for managing Linux servers (Ubuntu 22.04 LTS, 24.04 LTS, and Debian 12+) with a baseline as low as 1 vCPU / 1GB RAM.
 
 ---
 
-## ⚡ Cài đặt 1 dòng lệnh (One-Line Installer)
+## ⚡ One-Line Automated Installer
 
-Hỗ trợ **Ubuntu (22.04 LTS, 24.04 LTS)** và **Debian 12+**:
+Compatible with **Ubuntu (22.04 LTS, 24.04 LTS)** and **Debian 12+**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tonyzidc/bee-panel/main/scripts/install.sh | bash
 ```
 
-Sau khi cài đặt thành công, truy cập:
-- 🌐 **Admin Console**: `http://<SERVER_IP>:8443` (Tự động hiển thị màn hình khởi tạo tài khoản Admin ban đầu)
-- ⚡ **Developer User Portal**: `http://<SERVER_IP>:3000` (Cổng kết nối dành cho Tenant/Developer)
+During installation, the script automatically:
+- Checks and upgrades OS packages (`apt-get upgrade`).
+- Applies kernel sysctl tuning (`somaxconn`, `inotify`, `swappiness=10`, `unprivileged_port_start=80`).
+- Configures a 2GB Swapfile to protect against Out-Of-Memory (OOM) crashes on 1GB VPS instances.
+- Installs and enables **UFW Firewall** and **Fail2ban** intrusion defense by default.
+- Sets up baseline firewall rules allowing SSH, HTTP (`80`), HTTPS (`443`), Admin (`8443`), Developer Portal (`3000`), and Container Ports (`10000:60000/tcp`).
+
+After successful installation, access:
+- 🌐 **Admin Console**: `http://<SERVER_IP>:8443` (Interactive first-time administrator initialization wizard)
+- ⚡ **Developer User Portal**: `http://<SERVER_IP>:3000` (Dedicated developer gateway)
 
 ---
 
-## 🚀 Tính năng cốt lõi
+## 🚀 Key Features
 
 1. **Zero-Root Containerization (User Namespaces)**:
-   - Mỗi tenant sở hữu một Docker Daemon độc lập chạy ở User Space (`/run/user/<UID>/docker.sock`).
-   - Container escape không thể chạm tới host kernel.
-   - Sử dụng driver mạng **`pasta`** hiệu năng cao, giảm tải CPU và tăng tốc throughput mạng gấp 5-6 lần so với `slirp4netns`.
+   - Each tenant runs an independent Rootless Docker Daemon (`/run/user/<UID>/docker.sock`).
+   - Container breakouts cannot penetrate the host kernel.
+   - High-performance **`pasta`** network driver reduces CPU overhead and delivers 5-6x the network throughput of `slirp4netns`.
 
-2. **Dual-Port Isolation**:
-   - Cổng Admin (`:8443`) và Cổng User (`:3000`) chạy trên hai engine định tuyến độc lập, tách biệt context và authentication.
+2. **Clean Light Mode UI Only**:
+   - Modern, high-contrast, professional Light Theme UI for both Admin Console and Developer Portal.
 
-3. **Edge Nginx & ACME SSL Đa Cổng**:
-   - Cho phép map domain ra cả port chuẩn `80/443` lẫn các cổng tùy biến (ví dụ `8080`, `8888`, `30001`).
-   - Cấp phát và tự động gia hạn chứng chỉ Let's Encrypt qua Webroot Challenge.
+3. **Built-in Security Management (Firewall & Fail2ban)**:
+   - **UFW Firewall Management**: Toggle firewall, add/delete custom rules (port, protocol, action, comment) directly in the UI.
+   - **Fail2ban Intrusion Defense**: Monitor active jails, view currently banned IPs, ban IPs manually, and unban IPs with 1 click.
 
-4. **Low-Footprint Baseline**:
-   - Daemon Go nhúng toàn bộ frontend Vue 3 tĩnh qua `//go:embed`, chiếm chưa tới **2MB RAM** khi idle.
-   - Tự động thiết lập Swapfile 2GB (`vm.swappiness=10`) chống crash OOM trên các VPS 1GB RAM.
-   - Giới hạn cgroups `MemoryMax=80M` và `GOMEMLIMIT=48MiB`.
+4. **Global Container Explorer**:
+   - Discovers and lists all Docker containers across all isolated rootless tenant sockets in real time.
+   - 1-click container actions: **Start**, **Stop**, **Restart**, and **Live Container Logs**.
 
-5. **Atomic Provisioning & Rollback**:
-   - Quy trình tạo tenant 6 bước với cơ chế rollback ngược tức thì nếu có bất kỳ bước nào gặp sự cố, đảm bảo không để lại tài khoản rác (zombie).
+5. **Edge Nginx Reverse Proxy, ACME SSL & Live Logs**:
+   - Route domain names to internal tenant container ports.
+   - Automated Let's Encrypt SSL certificate issuance and auto-renewal.
+   - Support for custom SSL certificate/key upload.
+   - Interactive Nginx **Access Log** and **Error Log** viewer.
+
+6. **Comprehensive User & Credentials Management**:
+   - Full CRUD on tenant accounts (Create, View, Suspend/Activate, Delete).
+   - View, copy, or download the full **OpenSSH Ed25519 Private Key** (`.pem`), Public Key, and system passwords anytime.
+   - Change tenant passwords and rotate SSH keys on demand.
+
+7. **Real-time Dashboard Metrics**:
+   - Live CPU Usage %, CPU core count, and system load averages.
+   - Memory (RAM) usage, Swap space usage, and Disk storage.
+   - Active tenant and container counters with live security status badges.
+
+8. **Comprehensive Settings & Self-Update**:
+   - Full panel configuration editor (`/etc/bee-panel/bee-panel.yaml`).
+   - **Telegram Event Notifications**: Instant alerts for admin logins, tenant provisioning, SSL certificates, and security alarms with built-in "Send Test Notification".
+   - **Safe Host SSH Port Modification**: Change OpenSSH port with automated UFW allow and syntax validation before restarting the SSH service.
+   - **GitHub Release Integration**: 1-click update checker and self-updater.
 
 ---
 
-## 📋 Quản lý dịch vụ Daemon
+## 🛠️ Unified Host CLI Suite
+
+Bee Panel includes a comprehensive host command-line interface:
 
 ```bash
-# Kiểm tra trạng thái
-systemctl status bee-panel
+# Check version and system architecture
+bee-panel version
 
-# Xem log realtime
-journalctl -u bee-panel -f
+# Display panel daemon status and metrics
+bee-panel status
 
-# Khởi động lại
-systemctl restart bee-panel
-```
+# Control systemd daemon service
+bee-panel start
+bee-panel stop
+bee-panel restart
 
----
+# Stream realtime journalctl logs
+bee-panel logs -f
 
-## 🛠️ CLI Utilities
+# Check or apply automated self-updates from GitHub
+bee-panel update --check
+bee-panel update
 
-Bee Panel hỗ trợ CLI trực tiếp trên host:
+# Reset administrator password directly in the database
+bee-panel admin reset-password [username]
 
-```bash
-# Tạo tenant thủ công
+# Manage tenants
+bee-panel tenant list
 bee-panel tenant create <username>
-
-# Xóa dọn sạch tenant (containers, files, subuid)
+bee-panel tenant info <username>
+bee-panel tenant restart <username>
 bee-panel tenant delete <username>
 
-# Xem phiên bản
-bee-panel version
+# Manage firewall
+bee-panel firewall status
+bee-panel firewall allow 8080/tcp
+bee-panel firewall deny 8080/tcp
+
+# Display full CLI help
+bee-panel help
 ```
 
 ---
 
 ## 📄 License
+
 MIT License.

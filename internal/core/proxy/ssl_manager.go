@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+type CertificateInfo struct {
+	CertPath string `json:"cert_path"`
+	KeyPath  string `json:"key_path"`
+}
+
 type SSLManager struct {
 	acmeWebroot string
 	adminEmail  string
@@ -76,6 +81,15 @@ func (sm *SSLManager) RequestCertificate(domain string) (certPath, keyPath strin
 
 	sm.logger.Info("SSL Certificate issued successfully", "domain", domain, "certPath", certPath)
 	return certPath, keyPath, nil
+}
+
+// ObtainCertificate wraps RequestCertificate and returns *CertificateInfo
+func (sm *SSLManager) ObtainCertificate(domain string) (*CertificateInfo, error) {
+	cPath, kPath, err := sm.RequestCertificate(domain)
+	if err != nil {
+		return nil, err
+	}
+	return &CertificateInfo{CertPath: cPath, KeyPath: kPath}, nil
 }
 
 // StartAutoRenewWorker starts a background periodic worker to renew certificates

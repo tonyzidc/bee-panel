@@ -1,12 +1,14 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"html/template"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 type VHostConfig struct {
@@ -134,4 +136,60 @@ func (nm *NginxManager) RemoveVHost(domain string) error {
 	_ = exec.Command("nginx", "-t").Run()
 	_ = exec.Command("nginx", "-s", "reload").Run()
 	return nil
+}
+
+// GetDomainLogs reads the latest lines from access or error log for a domain
+func (nm *NginxManager) GetDomainLogs(domain, logType string, lines int) ([]string, error) {
+	if lines <= 0 {
+		lines = 100
+	}
+	if lines > 1000 {
+		lines = 1000
+	}
+
+	logFile := fmt.Sprintf("/var/log/nginx/%s.access.log", domain)
+	if strings.ToLower(logType) == "error" {
+		logFile = fmt.Sprintf("/var/log/nginx/%s.error.log", domain)
+	}
+
+	f, err := os.Open(logFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{"(No log entries generated yet for this domain)"}, nil
+		}
+		return nil, fmt.Errorf("open log file: %w", err)
+	}
+	defer f.Close()
+
+	var allLines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+
+	if len(allLines) <= lines {
+		return allLines, nil
+	}
+	return allLines[len(allLines)-lines:], nil
+}
+
+// SaveCustomSSL writes custom SSL cert and key files to /etc/ssl/bee-panel/<domain>/
+func (nm *NginxManager) SaveCustomSSL(domain, certContent, keyContent string) (string, string, error) {
+	certDir := filepath.Join("/etc/ssl/bee-panel", domain)
+	if err := os.MkdirAll(certDir, 0700); err != nil {
+		return "", "", fmt.Errorf("create ssl dir: %w", err)
+	}
+
+	certPath := filepath.Join(certDir, "fullchain.pem")
+	keyPath := filepath.Join(certDir, "privkey.pem")
+
+	if err := os.WriteFile(certPath, []byte(strings.TrimSpace(certContent)), 0644); err != nil {
+		return "", "", fmt.Errorf("write ssl cert: %w", err)
+	}
+
+	if err := os.WriteFile(keyPath, []byte(strings.TrimSpace(keyContent)), 0600); err != nil {
+		return "", "", fmt.Errorf("write ssl key: %w", err)
+	}
+
+	return certPath, keyPath, nil
 }

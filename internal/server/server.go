@@ -142,7 +142,7 @@ func (s *Server) Start(ctx context.Context) error {
 			pr.Post("/admin/domains/{domain}/ssl/custom", adminH.UploadCustomSSL)
 			pr.Get("/admin/domains/{domain}/logs", adminH.GetDomainLogs)
 
-			// Security (Firewall & Fail2ban)
+			// Security (Firewall & Fail2ban & IP SSL)
 			pr.Get("/admin/security/firewall/status", adminH.GetFirewallStatus)
 			pr.Post("/admin/security/firewall/toggle", adminH.ToggleFirewall)
 			pr.Post("/admin/security/firewall/rules", adminH.AddFirewallRule)
@@ -152,6 +152,8 @@ func (s *Server) Start(ctx context.Context) error {
 			pr.Put("/admin/security/fail2ban/config", adminH.UpdateFail2banConfig)
 			pr.Post("/admin/security/fail2ban/ban", adminH.BanFail2banIP)
 			pr.Post("/admin/security/fail2ban/unban", adminH.UnbanFail2banIP)
+			pr.Post("/admin/security/ssl/issue-ip", adminH.IssueIPSSL)
+			pr.Get("/admin/security/ssl/ip-status", adminH.GetIPSSLStatus)
 
 			// Settings, Telegram, SSH & Panel Domain
 			pr.Get("/admin/settings", adminH.GetSettings)

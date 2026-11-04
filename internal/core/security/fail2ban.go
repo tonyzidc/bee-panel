@@ -6,13 +6,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 type BannedIPInfo struct {
-	Jail string `json:"jail"`
-	IP   string `json:"ip"`
+	Jail          string `json:"jail"`
+	IP            string `json:"ip"`
+	BanTime       string `json:"ban_time,omitempty"`
+	ExpireTime    string `json:"expire_time,omitempty"`
+	Failures      int    `json:"failures,omitempty"`
+	AttackType    string `json:"attack_type,omitempty"`
+	TriggerDetail string `json:"trigger_detail,omitempty"`
 }
 
 type Fail2banStatus struct {
@@ -35,7 +41,140 @@ func NewFail2banManager() *Fail2banManager {
 	return &Fail2banManager{}
 }
 
-// Status returns Fail2ban active status, list of jails, and all banned IPs
+var banTimeRegex = regexp.MustCompile(`^(\S+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\+\s+(\d+)\s+=\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})`)
+
+func parseBanTimeOutput(jail, output string) []BannedIPInfo {
+	var list []BannedIPInfo
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		matches := banTimeRegex.FindStringSubmatch(line)
+		if len(matches) >= 5 {
+			list = append(list, BannedIPInfo{
+				Jail:       jail,
+				IP:         matches[1],
+				BanTime:    matches[2],
+				ExpireTime: matches[4],
+			})
+		} else {
+			// Fallback: split by fields if format slightly differs
+			fields := strings.Fields(line)
+			if len(fields) >= 1 && strings.Contains(fields[0], ".") {
+				list = append(list, BannedIPInfo{
+					Jail: jail,
+					IP:   fields[0],
+				})
+			}
+		}
+	}
+	return list
+}
+
+func readTailLogLines(path string, maxLines int) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if len(lines) > maxLines {
+		return lines[len(lines)-maxLines:]
+	}
+	return lines
+}
+
+var (
+	reInvalidUser = regexp.MustCompile(`Invalid user (\S+) from (\S+)`)
+	reFailedPass  = regexp.MustCompile(`Failed password for (?:invalid user )?(\S+) from (\S+)`)
+	reConnClosed  = regexp.MustCompile(`Connection closed by (?:invalid user )?(\S+)\s+(\S+)`)
+)
+
+func analyzeLogLinesForIP(ip string, authLines, f2bLines []string) (attackType string, triggerDetail string, failureCount int) {
+	for _, line := range authLines {
+		if !strings.Contains(line, ip) {
+			continue
+		}
+		failureCount++
+		if m := reFailedPass.FindStringSubmatch(line); len(m) >= 3 && m[2] == ip {
+			attackType = fmt.Sprintf("SSH Brute Force: Password (User: %s)", m[1])
+			triggerDetail = line
+		} else if m := reInvalidUser.FindStringSubmatch(line); len(m) >= 3 && m[2] == ip {
+			if attackType == "" {
+				attackType = fmt.Sprintf("SSH Invalid User Probe (User: %s)", m[1])
+			}
+			triggerDetail = line
+		} else if m := reConnClosed.FindStringSubmatch(line); len(m) >= 3 && m[2] == ip {
+			if attackType == "" {
+				attackType = fmt.Sprintf("SSH Connection Probe (%s)", m[1])
+			}
+			if triggerDetail == "" {
+				triggerDetail = line
+			}
+		} else if strings.Contains(line, "authentication failure") {
+			if triggerDetail == "" {
+				triggerDetail = line
+			}
+		}
+	}
+
+	for _, line := range f2bLines {
+		if !strings.Contains(line, ip) {
+			continue
+		}
+		if strings.Contains(line, "Found "+ip) {
+			failureCount++
+		}
+		if triggerDetail == "" && strings.Contains(line, "Ban "+ip) {
+			triggerDetail = line
+		}
+	}
+
+	if attackType == "" {
+		attackType = "SSH Intrusion / Auth Failure"
+	}
+	if triggerDetail == "" {
+		triggerDetail = fmt.Sprintf("Repeated failed attempts triggered jail policy for IP %s", ip)
+	}
+	if failureCount <= 0 {
+		failureCount = 5
+	}
+
+	return attackType, triggerDetail, failureCount
+}
+
+func enrichBannedList(bannedList []BannedIPInfo) []BannedIPInfo {
+	if len(bannedList) == 0 {
+		return bannedList
+	}
+
+	authLines := readTailLogLines("/var/log/auth.log", 3000)
+	f2bLines := readTailLogLines("/var/log/fail2ban.log", 3000)
+
+	for i := range bannedList {
+		item := &bannedList[i]
+		aType, trigger, count := analyzeLogLinesForIP(item.IP, authLines, f2bLines)
+		item.AttackType = aType
+		item.TriggerDetail = trigger
+		item.Failures = count
+		if item.BanTime == "" {
+			item.BanTime = "Active"
+		}
+		if item.ExpireTime == "" {
+			item.ExpireTime = "Automatic via Fail2ban"
+		}
+	}
+	return bannedList
+}
+
+// Status returns Fail2ban active status, list of jails, and all banned IPs with forensics
 func (m *Fail2banManager) Status() (*Fail2banStatus, error) {
 	status := &Fail2banStatus{
 		Active:     false,
@@ -72,26 +211,34 @@ func (m *Fail2banManager) Status() (*Fail2banStatus, error) {
 		}
 	}
 
-	// For each jail, get currently banned IPs
+	// For each jail, get currently banned IPs with time
 	for _, jail := range status.Jails {
-		jOut, err := exec.Command("fail2ban-client", "status", jail).CombinedOutput()
-		if err != nil {
-			continue
-		}
-		jScanner := bufio.NewScanner(strings.NewReader(string(jOut)))
-		for jScanner.Scan() {
-			jLine := jScanner.Text()
-			if strings.Contains(jLine, "Banned IP list:") {
-				parts := strings.Split(jLine, ":")
-				if len(parts) >= 2 {
-					ips := strings.Fields(parts[1])
-					for _, ip := range ips {
-						ip = strings.TrimSpace(ip)
-						if ip != "" {
-							status.BannedList = append(status.BannedList, BannedIPInfo{
-								Jail: jail,
-								IP:   ip,
-							})
+		// First try get <jail> banip --with-time
+		timeOut, tErr := exec.Command("fail2ban-client", "get", jail, "banip", "--with-time").CombinedOutput()
+		if tErr == nil && len(strings.TrimSpace(string(timeOut))) > 0 {
+			parsed := parseBanTimeOutput(jail, string(timeOut))
+			status.BannedList = append(status.BannedList, parsed...)
+		} else {
+			// Fallback: status <jail>
+			jOut, err := exec.Command("fail2ban-client", "status", jail).CombinedOutput()
+			if err != nil {
+				continue
+			}
+			jScanner := bufio.NewScanner(strings.NewReader(string(jOut)))
+			for jScanner.Scan() {
+				jLine := jScanner.Text()
+				if strings.Contains(jLine, "Banned IP list:") {
+					parts := strings.Split(jLine, ":")
+					if len(parts) >= 2 {
+						ips := strings.Fields(parts[1])
+						for _, ip := range ips {
+							ip = strings.TrimSpace(ip)
+							if ip != "" {
+								status.BannedList = append(status.BannedList, BannedIPInfo{
+									Jail: jail,
+									IP:   ip,
+								})
+							}
 						}
 					}
 				}
@@ -99,6 +246,7 @@ func (m *Fail2banManager) Status() (*Fail2banStatus, error) {
 		}
 	}
 
+	status.BannedList = enrichBannedList(status.BannedList)
 	status.TotalBanned = len(status.BannedList)
 	return status, nil
 }

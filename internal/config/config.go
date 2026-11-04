@@ -19,6 +19,8 @@ type Config struct {
 		JWTExpiryHours int    `yaml:"jwt_expiry_hours" json:"jwt_expiry_hours"`
 		PanelDomain    string `yaml:"panel_domain" json:"panel_domain"`
 		PanelSSL       bool   `yaml:"panel_ssl" json:"panel_ssl"`
+		PanelIP        string `yaml:"panel_ip" json:"panel_ip"`
+		PanelIPSSL     bool   `yaml:"panel_ip_ssl" json:"panel_ip_ssl"`
 	} `yaml:"server" json:"server"`
 
 	Storage struct {

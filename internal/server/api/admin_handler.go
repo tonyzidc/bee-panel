@@ -2,10 +2,15 @@ package api
 
 import (
 	"bufio"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -988,11 +993,111 @@ func (h *AdminHandler) RemovePanelDomain(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h *AdminHandler) detectPublicIP() string {
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.ipify.org")
+	if err == nil {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		ip := strings.TrimSpace(string(b))
+		if net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+	if h.cfg.Server.PanelIP != "" && net.ParseIP(h.cfg.Server.PanelIP) != nil {
+		return h.cfg.Server.PanelIP
+	}
+	return ""
+}
+
+func (h *AdminHandler) IssueIPSSL(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IP string `json:"ip"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	targetIP := strings.TrimSpace(req.IP)
+	if targetIP == "" {
+		targetIP = h.detectPublicIP()
+	}
+	if targetIP == "" || !h.sslMgr.IsIP(targetIP) {
+		http.Error(w, `{"error":"valid public IPv4 address is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 1. First ensure plain HTTP vhost exists to satisfy Let's Encrypt HTTP-01 challenge
+	if err := h.nginxMgr.ApplyPanelVHost(targetIP, h.cfg.Server.AdminPort, false, "", ""); err != nil {
+		http.Error(w, `{"error":"failed to prepare http challenge vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Request shortlived Let's Encrypt IP certificate via acme.sh
+	certInfo, err := h.sslMgr.ObtainIPCertificate(targetIP)
+	if err != nil {
+		http.Error(w, `{"error":"failed to obtain Let's Encrypt IP certificate: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Apply HTTPS portless Nginx vhost on port 443 proxying to AdminPort 8443
+	if err := h.nginxMgr.ApplyPanelVHost(targetIP, h.cfg.Server.AdminPort, true, certInfo.CertPath, certInfo.KeyPath); err != nil {
+		http.Error(w, `{"error":"failed to apply https panel vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.cfg.Server.PanelIP = targetIP
+	h.cfg.Server.PanelIPSSL = true
+	_ = config.SaveConfig("", h.cfg)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":   "Let's Encrypt IP SSL issued and HTTPS port 443 active",
+		"ip":        targetIP,
+		"cert_path": certInfo.CertPath,
+		"key_path":  certInfo.KeyPath,
+		"https_url": fmt.Sprintf("https://%s/", targetIP),
+		"status":    "active",
+	})
+}
+
+func (h *AdminHandler) GetIPSSLStatus(w http.ResponseWriter, r *http.Request) {
+	ip := h.cfg.Server.PanelIP
+	if ip == "" {
+		ip = h.detectPublicIP()
+	}
+
+	res := map[string]interface{}{
+		"ip":        ip,
+		"active":    false,
+		"expires":   "",
+		"cert_path": "",
+	}
+
+	if ip != "" {
+		certPath := filepath.Join("/etc/ssl/bee-panel", ip, "fullchain.pem")
+		if data, err := os.ReadFile(certPath); err == nil {
+			block, _ := pem.Decode(data)
+			if block != nil {
+				if cert, err := x509.ParseCertificate(block.Bytes); err == nil {
+					res["active"] = time.Now().Before(cert.NotAfter)
+					res["expires"] = cert.NotAfter.Format("2006-01-02 15:04:05 UTC")
+					res["issuer"] = cert.Issuer.CommonName
+					res["cert_path"] = certPath
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
 func (h *AdminHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	sshPort := h.sshMgr.GetCurrentSSHPort()
+	publicIP := h.detectPublicIP()
 	res := map[string]interface{}{
-		"config":   h.cfg,
-		"ssh_port": sshPort,
+		"config":        h.cfg,
+		"ssh_port":      sshPort,
+		"public_ip":     publicIP,
+		"ip_ssl_active": h.cfg.Server.PanelIPSSL,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)

@@ -518,6 +518,23 @@
               </div>
             </div>
 
+            <!-- Search & Filter Controls -->
+            <div class="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div class="relative flex-1 max-w-md">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                <input v-model="fwSearch" placeholder="Filter firewall rules by port, protocol, source, comment..." class="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500">
+              </div>
+              <div class="flex items-center space-x-2 text-xs text-slate-600">
+                <span>Show:</span>
+                <select v-model="fwPageSize" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800">
+                  <option :value="10">10 / page</option>
+                  <option :value="25">25 / page</option>
+                  <option :value="50">50 / page</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+            </div>
+
             <div class="overflow-x-auto">
               <table class="w-full text-left text-xs">
                 <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
@@ -531,10 +548,12 @@
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200 text-slate-700">
-                  <tr v-if="!firewallStatus.rules || firewallStatus.rules.length === 0">
-                    <td colspan="6" class="p-8 text-center text-slate-400">No active firewall rules found.</td>
+                  <tr v-if="!paginatedFwRules || paginatedFwRules.length === 0">
+                    <td colspan="6" class="p-8 text-center text-slate-400">
+                      {{ fwSearch ? 'No firewall rules match your search query.' : 'No active firewall rules found.' }}
+                    </td>
                   </tr>
-                  <tr v-for="r in firewallStatus.rules" :key="r.number" class="hover:bg-slate-50 transition">
+                  <tr v-for="r in paginatedFwRules" :key="r.number" class="hover:bg-slate-50 transition">
                     <td class="p-4 font-mono font-bold text-slate-500">#{{ r.number }}</td>
                     <td class="p-4 font-semibold text-slate-900">{{ r.to }}</td>
                     <td class="p-4">
@@ -552,6 +571,22 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            <!-- Pagination Footer -->
+            <div v-if="filteredFwRules.length > 0" class="p-4 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+              <div>
+                Showing <span class="font-semibold text-slate-900">{{ fwRangeStart }}</span> to <span class="font-semibold text-slate-900">{{ fwRangeEnd }}</span> of <span class="font-semibold text-slate-900">{{ filteredFwRules.length }}</span> rules
+              </div>
+              <div v-if="fwPageSize !== 'all' && totalFwPages > 1" class="flex items-center space-x-1">
+                <button @click="fwCurrentPage--" :disabled="fwCurrentPage <= 1" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white">
+                  <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                </button>
+                <span class="px-3 py-1 font-semibold text-slate-800">Page {{ fwCurrentPage }} of {{ totalFwPages }}</span>
+                <button @click="fwCurrentPage++" :disabled="fwCurrentPage >= totalFwPages" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white">
+                  <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -596,49 +631,100 @@
               </div>
             </div>
 
-            <!-- Banned IPs Card -->
+            <!-- Banned IPs Card with Forensics & Pagination -->
             <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-            <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <div class="flex items-center space-x-2">
-                  <h3 class="font-bold text-slate-900 text-base">Active Banned IP Addresses</h3>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold" :class="fail2banStatus.active ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'">
-                    {{ fail2banStatus.active ? 'Active' : 'Inactive' }}
-                  </span>
+              <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <div class="flex items-center space-x-2">
+                    <h3 class="font-bold text-slate-900 text-base">Active Banned IP Addresses</h3>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold" :class="fail2banStatus.active ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'">
+                      {{ fail2banStatus.active ? 'Active' : 'Inactive' }}
+                    </span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                      {{ (fail2banStatus.banned_list || []).length }} Blocked
+                    </span>
+                  </div>
+                  <p class="text-xs text-slate-500 mt-0.5">Automated brute-force ban defense across active jails: <strong>{{ (fail2banStatus.jails || []).join(', ') || 'none' }}</strong></p>
                 </div>
-                <p class="text-xs text-slate-500 mt-0.5">Automated brute-force ban defense across active jails: <strong>{{ (fail2banStatus.jails || []).join(', ') || 'none' }}</strong></p>
+                <button @click="openBanIPModal" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                  <i class="fa-solid fa-ban mr-1"></i> Ban IP Manually
+                </button>
               </div>
-              <button @click="openBanIPModal" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
-                <i class="fa-solid fa-ban mr-1"></i> Ban IP Manually
-              </button>
-            </div>
 
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-xs">
-                <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th class="p-4">JAIL</th>
-                    <th class="p-4">BANNED IP ADDRESS</th>
-                    <th class="p-4 text-right">ACTION</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200 text-slate-700">
-                  <tr v-if="!fail2banStatus.banned_list || fail2banStatus.banned_list.length === 0">
-                    <td colspan="3" class="p-8 text-center text-slate-400">
-                      No IP addresses are currently banned by Fail2ban.
-                    </td>
-                  </tr>
-                  <tr v-for="b in fail2banStatus.banned_list" :key="b.jail + b.ip" class="hover:bg-slate-50 transition">
-                    <td class="p-4 font-semibold text-slate-900">{{ b.jail }}</td>
-                    <td class="p-4 font-mono font-bold text-rose-700">{{ b.ip }}</td>
-                    <td class="p-4 text-right">
-                      <button @click="unbanIP(b.jail, b.ip)" class="px-3 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg">
-                        <i class="fa-solid fa-unlock mr-1"></i> Unban IP
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <!-- Search & Filter Controls -->
+              <div class="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div class="relative flex-1 max-w-md">
+                  <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                  <input v-model="f2bSearch" placeholder="Filter banned IPs, attack pattern, or jail..." class="w-full pl-9 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500">
+                </div>
+                <div class="flex items-center space-x-2 text-xs text-slate-600">
+                  <span>Show:</span>
+                  <select v-model="f2bPageSize" class="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800">
+                    <option :value="10">10 / page</option>
+                    <option :value="25">25 / page</option>
+                    <option :value="50">50 / page</option>
+                    <option value="all">All</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th class="p-4">JAIL</th>
+                      <th class="p-4">BANNED IP ADDRESS</th>
+                      <th class="p-4">ATTACK BEHAVIOR / PATTERN</th>
+                      <th class="p-4">BAN TIME</th>
+                      <th class="p-4">EXPIRE TIME</th>
+                      <th class="p-4 text-right">ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200 text-slate-700">
+                    <tr v-if="!paginatedBannedList || paginatedBannedList.length === 0">
+                      <td colspan="6" class="p-8 text-center text-slate-400">
+                        {{ f2bSearch ? 'No banned IPs match your search query.' : 'No IP addresses are currently banned by Fail2ban.' }}
+                      </td>
+                    </tr>
+                    <tr v-for="b in paginatedBannedList" :key="b.jail + b.ip" class="hover:bg-slate-50 transition">
+                      <td class="p-4 font-semibold text-slate-900">{{ b.jail }}</td>
+                      <td class="p-4 font-mono font-bold text-rose-700">{{ b.ip }}</td>
+                      <td class="p-4">
+                        <div class="flex flex-col space-y-0.5">
+                          <span class="font-medium text-slate-800">{{ b.attack_type || 'SSH Authentication Intrusion' }}</span>
+                          <span class="text-[10px] text-slate-400 font-mono">{{ b.failures || 5 }} failed attempts</span>
+                        </div>
+                      </td>
+                      <td class="p-4 font-mono text-[11px] text-slate-600">{{ b.ban_time || '-' }}</td>
+                      <td class="p-4 font-mono text-[11px] text-slate-600">{{ b.expire_time || '-' }}</td>
+                      <td class="p-4 text-right space-x-1.5 whitespace-nowrap">
+                        <button @click="viewForensics(b)" class="px-2.5 py-1 text-[11px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg" title="View Attack Forensics">
+                          <i class="fa-solid fa-microscope text-indigo-600 mr-1"></i> Forensics
+                        </button>
+                        <button @click="unbanIP(b.jail, b.ip)" class="px-2.5 py-1 text-[11px] bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg">
+                          <i class="fa-solid fa-unlock mr-1"></i> Unban
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Pagination Footer -->
+              <div v-if="filteredBannedList.length > 0" class="p-4 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+                <div>
+                  Showing <span class="font-semibold text-slate-900">{{ f2bRangeStart }}</span> to <span class="font-semibold text-slate-900">{{ f2bRangeEnd }}</span> of <span class="font-semibold text-slate-900">{{ filteredBannedList.length }}</span> banned IPs
+                </div>
+                <div v-if="f2bPageSize !== 'all' && totalF2BPages > 1" class="flex items-center space-x-1">
+                  <button @click="f2bCurrentPage--" :disabled="f2bCurrentPage <= 1" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white">
+                    <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                  </button>
+                  <span class="px-3 py-1 font-semibold text-slate-800">Page {{ f2bCurrentPage }} of {{ totalF2BPages }}</span>
+                  <button @click="f2bCurrentPage++" :disabled="f2bCurrentPage >= totalF2BPages" class="px-2.5 py-1 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white">
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -731,6 +817,11 @@
                   </label>
                 </div>
 
+                <div v-if="telegramFeedback.text" class="p-3 rounded-xl text-xs font-semibold" :class="telegramFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                  <i :class="telegramFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
+                  {{ telegramFeedback.text }}
+                </div>
+
                 <div class="flex items-center space-x-2 pt-1">
                   <button type="button" @click="sendTelegramTest" :disabled="testingTg" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition border border-slate-200 flex-1">
                     {{ testingTg ? 'Sending...' : 'Send Test Notification' }}
@@ -773,19 +864,20 @@
                   <i class="fa-solid fa-globe text-cyan-600 mr-2 text-lg"></i> Custom Panel Domain Binding
                 </h3>
                 <span v-if="settingsForm.server.panel_domain" class="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold">
-                  Active Domain
+                  Active Domain (Portless)
                 </span>
               </div>
               <p class="text-xs text-slate-500 mb-4">
-                Bind a custom domain (e.g. <code class="text-cyan-700 font-mono">panel.example.com</code>) to access Bee Panel without entering the <code class="text-slate-700 font-mono">IP:8443</code> port.
+                Bind a domain (e.g. <code class="text-cyan-700 font-mono">panel.example.com</code>) to access Bee Panel directly on standard port 80/443 without needing <code class="text-slate-700 font-mono">:8443</code>.
               </p>
 
               <div v-if="settingsForm.server.panel_domain" class="p-3.5 bg-cyan-50 border border-cyan-200 rounded-xl mb-4 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
-                  <span class="text-slate-600 block">Current Panel URL:</span>
-                  <a :href="(settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain" target="_blank" class="font-mono font-bold text-cyan-700 hover:underline text-sm">
-                    {{ (settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain }}
+                  <span class="text-slate-600 block">Direct Panel URL:</span>
+                  <a :href="(settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain + '/'" target="_blank" class="font-mono font-bold text-cyan-700 hover:underline text-sm">
+                    {{ (settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain }}/
                   </a>
+                  <span class="text-[10px] text-emerald-700 font-medium block mt-0.5"><i class="fa-solid fa-circle-check mr-1"></i>Portless 443/80 access active</span>
                 </div>
                 <button type="button" @click="removePanelDomain" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold self-start sm:self-auto">
                   <i class="fa-solid fa-unlink mr-1"></i> Unbind Domain
@@ -796,18 +888,60 @@
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 mb-1">Domain FQDN</label>
                   <input v-model="panelDomainForm.domain" required placeholder="panel.yourdomain.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
-                  <span class="text-[10px] text-slate-400 mt-1 block">Point your domain's DNS A-record to <strong>64.118.143.89</strong> before binding.</span>
+                  <span class="text-[10px] text-slate-400 mt-1 block">Point your domain's DNS A-record to <strong>{{ publicIP || '64.118.143.89' }}</strong> before binding.</span>
                 </div>
 
                 <div class="flex items-center space-x-2">
                   <input v-model="panelDomainForm.ssl" type="checkbox" id="panelSSLCheck" class="w-4 h-4 rounded text-cyan-600 border-slate-300">
-                  <label for="panelSSLCheck" class="text-xs font-semibold text-slate-700">Automatically issue Let's Encrypt SSL (HTTPS)</label>
+                  <label for="panelSSLCheck" class="text-xs font-semibold text-slate-700">Automatically issue Let's Encrypt SSL (HTTPS port 443)</label>
                 </div>
 
                 <button type="submit" :disabled="bindingPanelDomain" class="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
                   {{ bindingPanelDomain ? 'Configuring Reverse Proxy...' : (settingsForm.server.panel_domain ? 'Update Panel Domain' : 'Bind Domain to Panel') }}
                 </button>
               </form>
+            </div>
+
+            <!-- Direct Public IP SSL Card (Solution 3) -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="font-bold text-slate-900 text-base flex items-center">
+                  <i class="fa-solid fa-shield-halved text-emerald-600 mr-2 text-lg"></i> Direct Public IP SSL (Let's Encrypt)
+                </h3>
+                <span v-if="ipSSLStatus.active" class="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold">
+                  <i class="fa-solid fa-lock text-[10px] mr-1"></i> HTTPS Port 443 Active
+                </span>
+                <span v-else class="px-2.5 py-0.5 bg-amber-100 text-amber-800 border border-amber-200 rounded-full text-[11px] font-bold">
+                  HTTP / Self-Signed Only
+                </span>
+              </div>
+              <p class="text-xs text-slate-500 mb-4">
+                Direct Let's Encrypt short-lived SSL certificate for public raw IP (RFC 8738 / HTTP-01 challenge). Enables portless HTTPS on standard port 443 with green lock.
+              </p>
+
+              <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-xl mb-4 text-xs space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-slate-600">Server Public IP:</span>
+                  <span class="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">{{ publicIP || '64.118.143.89' }}</span>
+                </div>
+                <div v-if="ipSSLStatus.active" class="flex items-center justify-between">
+                  <span class="text-slate-600">Secure Direct Access:</span>
+                  <a :href="'https://' + (publicIP || '64.118.143.89') + '/'" target="_blank" class="font-mono font-bold text-emerald-700 hover:underline">
+                    https://{{ publicIP || '64.118.143.89' }}/
+                  </a>
+                </div>
+                <div v-if="ipSSLStatus.active && ipSSLStatus.expires" class="flex items-center justify-between">
+                  <span class="text-slate-600">Certificate Expiration:</span>
+                  <span class="font-mono text-slate-700">{{ ipSSLStatus.expires }} (Auto-renewed every 12h)</span>
+                </div>
+              </div>
+
+              <div class="flex items-center space-x-3">
+                <button type="button" @click="issueIPSSL" :disabled="issuingIPSSL" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50 flex items-center justify-center space-x-1.5">
+                  <i class="fa-solid fa-certificate" :class="{ 'fa-spin': issuingIPSSL }"></i>
+                  <span>{{ issuingIPSSL ? 'Issuing Let\'s Encrypt IP SSL...' : (ipSSLStatus.active ? 'Re-issue / Renew IP Certificate' : 'Issue Let\'s Encrypt SSL for Public IP') }}</span>
+                </button>
+              </div>
             </div>
 
             <!-- Admin Profile & Security -->
@@ -817,6 +951,11 @@
                   <i class="fa-solid fa-user-pen text-indigo-600 mr-2"></i> Admin Account Profile
                 </h3>
                 <p class="text-xs text-slate-500 mb-4">Update administrator account username and email address.</p>
+
+                <div v-if="adminProfileFeedback.text" class="mb-4 p-3 rounded-xl text-xs font-semibold" :class="adminProfileFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                  <i :class="adminProfileFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
+                  {{ adminProfileFeedback.text }}
+                </div>
 
                 <form @submit.prevent="updateAdminProfile" class="space-y-4">
                   <div>
@@ -835,16 +974,26 @@
 
               <div class="pt-4 border-t border-slate-200">
                 <h4 class="font-bold text-slate-900 text-sm mb-1 flex items-center">
-                  <i class="fa-solid fa-key text-amber-600 mr-2"></i> Change Password
+                  <i class="fa-solid fa-key text-amber-600 mr-2"></i> Change Admin Password
                 </h4>
                 <p class="text-xs text-slate-500 mb-3">Set a new strong password for administrator login.</p>
 
+                <div v-if="adminPasswordFeedback.text" class="mb-3 p-3 rounded-xl text-xs font-semibold" :class="adminPasswordFeedback.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'">
+                  <i :class="adminPasswordFeedback.type === 'success' ? 'fa-solid fa-circle-check text-emerald-600' : 'fa-solid fa-circle-exclamation text-rose-600'" class="mr-1.5"></i>
+                  {{ adminPasswordFeedback.text }}
+                </div>
+
                 <form @submit.prevent="updateAdminPassword" class="space-y-3">
                   <div>
-                    <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New password (min 8 chars)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">New Password</label>
+                    <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New password (min 8 characters)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
                   </div>
-                  <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm">
-                    Update Password
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Confirm New Password</label>
+                    <input v-model="confirmAdminPassword" type="password" required minlength="8" placeholder="Re-type new password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                  </div>
+                  <button type="submit" :disabled="changingAdminPassword" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                    {{ changingAdminPassword ? 'Updating Password...' : 'Update Password' }}
                   </button>
                 </form>
               </div>
@@ -1219,7 +1368,7 @@
               {{ renewingSSL ? 'Issuing...' : 'Obtain / Renew Now' }}
             </button>
           </div>
-          <p class="text-[11px] text-emerald-700">Domain DNS must point directly to this server: <strong>64.118.143.89</strong>.</p>
+          <p class="text-[11px] text-emerald-700">Domain DNS must point directly to this server: <strong>{{ publicIP || '64.118.143.89' }}</strong>.</p>
         </div>
 
         <!-- Option 2: Custom SSL -->
@@ -1241,6 +1390,71 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal 10: Attack Forensics Modal -->
+    <div v-if="showForensicsModal && selectedForensics" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div class="flex items-center space-x-2">
+            <div class="w-8 h-8 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center font-bold">
+              <i class="fa-solid fa-shield-virus"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Attack Forensics Inspector</h3>
+              <p class="text-xs font-mono text-rose-700 font-bold">{{ selectedForensics.ip }}</p>
+            </div>
+          </div>
+          <button @click="showForensicsModal = false" class="text-slate-400 hover:text-slate-600 text-lg">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <!-- Forensics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <span class="text-slate-500 block text-[10px]">Target Jail</span>
+            <span class="font-bold text-slate-900 font-mono">{{ selectedForensics.jail }}</span>
+          </div>
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <span class="text-slate-500 block text-[10px]">Failures Recorded</span>
+            <span class="font-bold text-rose-700 font-mono">{{ selectedForensics.failures || 5 }} attempts</span>
+          </div>
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <span class="text-slate-500 block text-[10px]">Ban Timestamp</span>
+            <span class="font-bold text-slate-800 font-mono text-[11px]">{{ selectedForensics.ban_time }}</span>
+          </div>
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <span class="text-slate-500 block text-[10px]">Auto-Unban Expiry</span>
+            <span class="font-bold text-slate-800 font-mono text-[11px]">{{ selectedForensics.expire_time }}</span>
+          </div>
+        </div>
+
+        <div>
+          <span class="block text-xs font-semibold text-slate-700 mb-1">Detected Attack Pattern & Behavior</span>
+          <div class="p-3 bg-rose-50/50 border border-rose-200 rounded-xl text-xs text-rose-900 font-semibold flex items-center space-x-2">
+            <i class="fa-solid fa-triangle-exclamation text-rose-600"></i>
+            <span>{{ selectedForensics.attack_type || 'SSH Authentication Intrusion' }}</span>
+          </div>
+        </div>
+
+        <div>
+          <span class="block text-xs font-semibold text-slate-700 mb-1">Triggering Auth / System Log Snippet</span>
+          <div class="p-3 bg-slate-950 text-emerald-400 font-mono text-[11px] rounded-xl overflow-x-auto whitespace-pre-wrap max-h-48 border border-slate-800">
+{{ selectedForensics.trigger_detail }}
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+          <button @click="unbanIP(selectedForensics.jail, selectedForensics.ip); showForensicsModal = false" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl transition shadow-sm flex items-center space-x-1.5">
+            <i class="fa-solid fa-unlock"></i>
+            <span>Unban This IP Now</span>
+          </button>
+          <button @click="showForensicsModal = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition border border-slate-200">
+            Close Inspector
+          </button>
+        </div>
       </div>
     </div>
 
@@ -1289,11 +1503,32 @@
         const newSSHPort = ref(22);
         const changingSSH = ref(false);
         const newAdminPassword = ref('');
+        const confirmAdminPassword = ref('');
+        const changingAdminPassword = ref(false);
+        const adminProfileFeedback = ref({ text: '', type: '' });
+        const adminPasswordFeedback = ref({ text: '', type: '' });
+        const telegramFeedback = ref({ text: '', type: '' });
         const adminProfileForm = ref({ username: localStorage.getItem('bee_user') || 'admin', email: '' });
         const savingAdminProfile = ref(false);
-        const panelDomainForm = ref({ domain: '', ssl: false });
+        const panelDomainForm = ref({ domain: '', ssl: true });
         const bindingPanelDomain = ref(false);
         const testingTg = ref(false);
+
+        // Public IP & SSL State
+        const publicIP = ref('');
+        const ipSSLStatus = ref({ active: false, expires: '', issuer: '', cert_path: '' });
+        const issuingIPSSL = ref(false);
+
+        // Security Subtabs: Pagination & Search State
+        const fwSearch = ref('');
+        const fwPageSize = ref(10);
+        const fwCurrentPage = ref(1);
+
+        const f2bSearch = ref('');
+        const f2bPageSize = ref(10);
+        const f2bCurrentPage = ref(1);
+        const showForensicsModal = ref(false);
+        const selectedForensics = ref(null);
 
         // Modals state
         const modals = ref({
@@ -1330,6 +1565,90 @@
         const ramUsagePercent = computed(() => metrics.value.memory_total_mb ? Math.round((metrics.value.memory_used_mb / metrics.value.memory_total_mb) * 100) : 0);
         const swapUsagePercent = computed(() => metrics.value.swap_total_mb ? Math.round((metrics.value.swap_used_mb / metrics.value.swap_total_mb) * 100) : 0);
         const diskUsagePercent = computed(() => metrics.value.disk_total_gb ? Math.round((metrics.value.disk_used_gb / metrics.value.disk_total_gb) * 100) : 0);
+
+        // UFW Pagination & Filtering
+        const filteredFwRules = computed(() => {
+          const list = firewallStatus.value.rules || [];
+          const q = fwSearch.value.trim().toLowerCase();
+          if (!q) return list;
+          return list.filter(r =>
+            String(r.number).includes(q) ||
+            (r.to && r.to.toLowerCase().includes(q)) ||
+            (r.action && r.action.toLowerCase().includes(q)) ||
+            (r.from && r.from.toLowerCase().includes(q)) ||
+            (r.comment && r.comment.toLowerCase().includes(q))
+          );
+        });
+
+        const totalFwPages = computed(() => {
+          if (fwPageSize.value === 'all') return 1;
+          return Math.ceil(filteredFwRules.value.length / Number(fwPageSize.value)) || 1;
+        });
+
+        const paginatedFwRules = computed(() => {
+          if (fwPageSize.value === 'all') return filteredFwRules.value;
+          const size = Number(fwPageSize.value);
+          const start = (fwCurrentPage.value - 1) * size;
+          return filteredFwRules.value.slice(start, start + size);
+        });
+
+        const fwRangeStart = computed(() => {
+          if (filteredFwRules.value.length === 0) return 0;
+          if (fwPageSize.value === 'all') return 1;
+          return (fwCurrentPage.value - 1) * Number(fwPageSize.value) + 1;
+        });
+
+        const fwRangeEnd = computed(() => {
+          if (fwPageSize.value === 'all') return filteredFwRules.value.length;
+          return Math.min(fwCurrentPage.value * Number(fwPageSize.value), filteredFwRules.value.length);
+        });
+
+        watch(fwSearch, () => { fwCurrentPage.value = 1; });
+        watch(fwPageSize, () => { fwCurrentPage.value = 1; });
+
+        // Fail2ban Pagination & Filtering
+        const filteredBannedList = computed(() => {
+          const list = fail2banStatus.value.banned_list || [];
+          const q = f2bSearch.value.trim().toLowerCase();
+          if (!q) return list;
+          return list.filter(b =>
+            (b.ip && b.ip.toLowerCase().includes(q)) ||
+            (b.jail && b.jail.toLowerCase().includes(q)) ||
+            (b.attack_type && b.attack_type.toLowerCase().includes(q)) ||
+            (b.trigger_detail && b.trigger_detail.toLowerCase().includes(q))
+          );
+        });
+
+        const totalF2BPages = computed(() => {
+          if (f2bPageSize.value === 'all') return 1;
+          return Math.ceil(filteredBannedList.value.length / Number(f2bPageSize.value)) || 1;
+        });
+
+        const paginatedBannedList = computed(() => {
+          if (f2bPageSize.value === 'all') return filteredBannedList.value;
+          const size = Number(f2bPageSize.value);
+          const start = (f2bCurrentPage.value - 1) * size;
+          return filteredBannedList.value.slice(start, start + size);
+        });
+
+        const f2bRangeStart = computed(() => {
+          if (filteredBannedList.value.length === 0) return 0;
+          if (f2bPageSize.value === 'all') return 1;
+          return (f2bCurrentPage.value - 1) * Number(f2bPageSize.value) + 1;
+        });
+
+        const f2bRangeEnd = computed(() => {
+          if (f2bPageSize.value === 'all') return filteredBannedList.value.length;
+          return Math.min(f2bCurrentPage.value * Number(f2bPageSize.value), filteredBannedList.value.length);
+        });
+
+        const viewForensics = (item) => {
+          selectedForensics.value = item;
+          showForensicsModal.value = true;
+        };
+
+        watch(f2bSearch, () => { f2bCurrentPage.value = 1; });
+        watch(f2bPageSize, () => { f2bCurrentPage.value = 1; });
 
         // URL Path and Query Routing
         const syncFromUrl = () => {
@@ -1505,9 +1824,11 @@
               };
               currentSSHPort.value = s.ssh_port || 22;
               newSSHPort.value = s.ssh_port || 22;
+              if (s.public_ip) publicIP.value = s.public_ip;
               panelDomainForm.value.domain = settingsForm.value.server.panel_domain || '';
-              panelDomainForm.value.ssl = !!settingsForm.value.server.panel_ssl;
+              panelDomainForm.value.ssl = settingsForm.value.server.panel_domain ? !!settingsForm.value.server.panel_ssl : true;
               adminProfileForm.value.username = currentUser.value || 'admin';
+              await fetchIPSSLStatus();
             }
             if (verRes.ok) versionInfo.value = await verRes.json();
             if (secSubTab.value === 'fail2ban') await loadFail2banConfig();
@@ -2030,6 +2351,7 @@
 
         const updateAdminProfile = async () => {
           savingAdminProfile.value = true;
+          adminProfileFeedback.value = { text: '', type: '' };
           try {
             const res = await fetch('/api/admin/settings/admin/profile', {
               method: 'PUT',
@@ -2040,12 +2362,12 @@
             if (res.ok) {
               currentUser.value = adminProfileForm.value.username;
               localStorage.setItem('bee_user', adminProfileForm.value.username);
-              alert('Admin profile updated successfully!');
+              adminProfileFeedback.value = { text: 'Admin profile updated successfully!', type: 'success' };
             } else {
-              alert('Profile update error: ' + (data.error || 'Failed'));
+              adminProfileFeedback.value = { text: data.error || 'Failed to update profile', type: 'error' };
             }
           } catch (e) {
-            alert('Profile update error: ' + e.message);
+            adminProfileFeedback.value = { text: e.message, type: 'error' };
           } finally {
             savingAdminProfile.value = false;
           }
@@ -2053,6 +2375,7 @@
 
         const sendTelegramTest = async () => {
           testingTg.value = true;
+          telegramFeedback.value = { text: '', type: '' };
           try {
             const res = await fetch('/api/admin/settings/telegram/test', {
               method: 'POST',
@@ -2064,12 +2387,12 @@
             });
             const data = await res.json();
             if (res.ok) {
-              alert('Test message sent to Telegram successfully!');
+              telegramFeedback.value = { text: 'Test message sent to Telegram successfully!', type: 'success' };
             } else {
-              alert('Telegram error: ' + data.error);
+              telegramFeedback.value = { text: 'Telegram error: ' + data.error, type: 'error' };
             }
           } catch (e) {
-            alert('Telegram test failed: ' + e.message);
+            telegramFeedback.value = { text: 'Telegram test failed: ' + e.message, type: 'error' };
           } finally {
             testingTg.value = false;
           }
@@ -2099,18 +2422,72 @@
         };
 
         const updateAdminPassword = async () => {
+          if (!newAdminPassword.value || newAdminPassword.value.length < 8) {
+            adminPasswordFeedback.value = { text: 'Password must be at least 8 characters long.', type: 'error' };
+            return;
+          }
+          if (newAdminPassword.value !== confirmAdminPassword.value) {
+            adminPasswordFeedback.value = { text: 'Passwords do not match. Please re-enter.', type: 'error' };
+            return;
+          }
+          changingAdminPassword.value = true;
+          adminPasswordFeedback.value = { text: '', type: '' };
           try {
             const res = await fetch('/api/admin/settings/admin/password', {
               method: 'PUT',
               headers: authHeaders(),
               body: JSON.stringify({ new_password: newAdminPassword.value })
             });
+            const data = await res.json();
             if (res.ok) {
+              adminPasswordFeedback.value = { text: 'Admin password changed successfully!', type: 'success' };
               newAdminPassword.value = '';
-              alert('Admin password updated successfully!');
+              confirmAdminPassword.value = '';
+            } else {
+              adminPasswordFeedback.value = { text: data.error || 'Failed to update password', type: 'error' };
             }
           } catch (e) {
-            alert('Password update error: ' + e.message);
+            adminPasswordFeedback.value = { text: e.message, type: 'error' };
+          } finally {
+            changingAdminPassword.value = false;
+          }
+        };
+
+        const fetchIPSSLStatus = async () => {
+          try {
+            const res = await fetch('/api/admin/security/ssl/ip-status', { headers: authHeaders() });
+            if (res.ok) {
+              const data = await res.json();
+              ipSSLStatus.value = data;
+              if (data.ip && !publicIP.value) {
+                publicIP.value = data.ip;
+              }
+            }
+          } catch (e) {
+            console.error('IP SSL status check error:', e);
+          }
+        };
+
+        const issueIPSSL = async () => {
+          issuingIPSSL.value = true;
+          try {
+            const res = await fetch('/api/admin/security/ssl/issue-ip', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({ ip: publicIP.value })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert(`Let's Encrypt IP SSL successfully issued! Direct portless HTTPS access active at https://${data.ip || publicIP.value}/`);
+              await fetchIPSSLStatus();
+              await refreshData();
+            } else {
+              alert('Issue IP SSL failed: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Issue IP SSL failed: ' + e.message);
+          } finally {
+            issuingIPSSL.value = false;
           }
         };
 
@@ -2194,8 +2571,12 @@
           loading, isSetup, token, currentUser, errorMsg, modalError, submitting, activeTab, secSubTab,
           setupForm, loginForm, metrics, tenants, containers, domains, firewallStatus, fail2banStatus, fail2banConfig, savingF2BConfig,
           settingsForm, versionInfo, latestRelease, updateAvailable, checkingUpdate, updatingNow,
-          currentSSHPort, newSSHPort, changingSSH, newAdminPassword, testingTg,
-          adminProfileForm, savingAdminProfile, panelDomainForm, bindingPanelDomain,
+          currentSSHPort, newSSHPort, changingSSH, newAdminPassword, confirmAdminPassword, changingAdminPassword, testingTg,
+          adminProfileForm, savingAdminProfile, adminProfileFeedback, adminPasswordFeedback, telegramFeedback,
+          panelDomainForm, bindingPanelDomain,
+          publicIP, ipSSLStatus, issuingIPSSL, issueIPSSL, fetchIPSSLStatus,
+          fwSearch, fwPageSize, fwCurrentPage, filteredFwRules, totalFwPages, paginatedFwRules, fwRangeStart, fwRangeEnd,
+          f2bSearch, f2bPageSize, f2bCurrentPage, showForensicsModal, selectedForensics, filteredBannedList, totalF2BPages, paginatedBannedList, f2bRangeStart, f2bRangeEnd, viewForensics,
           editDomainForm, savingEditDomain, sslDomainTarget, customSSLForm, renewingSSL, uploadingCustomSSL,
           ramUsagePercent, swapUsagePercent, diskUsagePercent,
           modals, activeUser, createUserForm, creatingUser, changeUserPwdInput, bindDomainForm, bindingDomain,

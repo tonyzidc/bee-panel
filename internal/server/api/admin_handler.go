@@ -595,9 +595,12 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Domain = cleanDomainFQDN(req.Domain)
-	if req.Domain == "" || req.TargetContainerPort <= 0 {
-		http.Error(w, `{"error":"domain and target port are required"}`, http.StatusBadRequest)
+	if req.Domain == "" {
+		http.Error(w, `{"error":"domain is required"}`, http.StatusBadRequest)
 		return
+	}
+	if req.TargetContainerPort < 0 {
+		req.TargetContainerPort = 0
 	}
 
 	if req.ExternalPort <= 0 {
@@ -619,20 +622,6 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		keyPath = cert.KeyPath
 	}
 
-	// Apply Nginx VHost
-	vhost := &proxy.VHostConfig{
-		Domain:              req.Domain,
-		ExternalPort:        req.ExternalPort,
-		TargetContainerPort: req.TargetContainerPort,
-		EnableSSL:           req.EnableSSL,
-		SSLCertPath:         certPath,
-		SSLKeyPath:          keyPath,
-	}
-	if err := h.nginxMgr.ApplyVHost(vhost); err != nil {
-		http.Error(w, `{"error":"nginx vhost failed: `+err.Error()+`"}`, http.StatusInternalServerError)
-		return
-	}
-
 	// Ensure domain webroot directory structure and starter files
 	var homeDir string
 	var uid, gid int
@@ -645,6 +634,21 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webRoot, _ := provisioner.EnsureDomainWebroot(req.Domain, homeDir, uid, gid, req.TargetContainerPort)
+
+	// Apply Nginx VHost
+	vhost := &proxy.VHostConfig{
+		Domain:              req.Domain,
+		ExternalPort:        req.ExternalPort,
+		TargetContainerPort: req.TargetContainerPort,
+		EnableSSL:           req.EnableSSL,
+		SSLCertPath:         certPath,
+		SSLKeyPath:          keyPath,
+		WebRoot:             webRoot,
+	}
+	if err := h.nginxMgr.ApplyVHost(vhost); err != nil {
+		http.Error(w, `{"error":"nginx vhost failed: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
 
 	mapping := &storage.DomainMapping{
 		TenantID:            req.TenantID,
@@ -662,6 +666,14 @@ func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Automatically open firewall rules for configured ports
+	if req.ExternalPort > 0 && req.ExternalPort != 80 && req.ExternalPort != 443 {
+		_ = h.fwMgr.EnsurePortOpen(req.ExternalPort, "Domain: "+req.Domain+" (listen)")
+	}
+	if req.TargetContainerPort > 0 {
+		_ = h.fwMgr.EnsurePortOpen(req.TargetContainerPort, "Domain: "+req.Domain+" (app)")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(mapping)
 }
@@ -676,6 +688,9 @@ func (h *AdminHandler) UpdateDomain(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"invalid payload"}`, http.StatusBadRequest)
 		return
 	}
+	if req.TargetContainerPort < 0 {
+		req.TargetContainerPort = 0
+	}
 
 	mapping, err := h.db.GetDomainMapping(domain)
 	if err != nil {
@@ -683,6 +698,7 @@ func (h *AdminHandler) UpdateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldTargetPort := mapping.TargetContainerPort
 	certPath := mapping.SSLCertPath
 	keyPath := mapping.SSLKeyPath
 
@@ -703,6 +719,7 @@ func (h *AdminHandler) UpdateDomain(w http.ResponseWriter, r *http.Request) {
 		EnableSSL:           req.EnableSSL,
 		SSLCertPath:         certPath,
 		SSLKeyPath:          keyPath,
+		WebRoot:             mapping.WebRoot,
 	}
 	if err := h.nginxMgr.ApplyVHost(vhost); err != nil {
 		http.Error(w, `{"error":"nginx apply failed: `+err.Error()+`"}`, http.StatusInternalServerError)
@@ -710,14 +727,57 @@ func (h *AdminHandler) UpdateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = h.db.UpdateDomainMapping(domain, req.TargetContainerPort, req.EnableSSL, certPath, keyPath)
+
+	// Update firewall rules if target port changed
+	if req.TargetContainerPort > 0 {
+		_ = h.fwMgr.EnsurePortOpen(req.TargetContainerPort, "Domain: "+domain+" (app)")
+	}
+	if oldTargetPort > 0 && oldTargetPort != req.TargetContainerPort {
+		adminPort := 8443
+		userPort := 3000
+		if h.cfg != nil {
+			adminPort = h.cfg.Server.AdminPort
+			userPort = h.cfg.Server.UserPort
+		}
+		if !security.IsSystemProtectedPort(oldTargetPort, adminPort, userPort) {
+			if inUse, _ := h.db.IsPortInUse(oldTargetPort, domain); !inUse {
+				_ = h.fwMgr.EnsurePortClosed(oldTargetPort)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": "domain updated successfully"})
 }
 
 func (h *AdminHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
 	domain := chi.URLParam(r, "domain")
+	mapping, _ := h.db.GetDomainMapping(domain)
+
 	_ = h.nginxMgr.RemoveVHost(domain)
 	_ = h.db.DeleteDomainMapping(domain)
+
+	if mapping != nil {
+		adminPort := 8443
+		userPort := 3000
+		if h.cfg != nil {
+			adminPort = h.cfg.Server.AdminPort
+			userPort = h.cfg.Server.UserPort
+		}
+		// Clean up target container port if not used elsewhere
+		if mapping.TargetContainerPort > 0 && !security.IsSystemProtectedPort(mapping.TargetContainerPort, adminPort, userPort) {
+			if inUse, _ := h.db.IsPortInUse(mapping.TargetContainerPort, domain); !inUse {
+				_ = h.fwMgr.EnsurePortClosed(mapping.TargetContainerPort)
+			}
+		}
+		// Clean up external listen port if custom and not used elsewhere
+		if mapping.ExternalPort > 0 && mapping.ExternalPort != 80 && mapping.ExternalPort != 443 && !security.IsSystemProtectedPort(mapping.ExternalPort, adminPort, userPort) {
+			if inUse, _ := h.db.IsPortInUse(mapping.ExternalPort, domain); !inUse {
+				_ = h.fwMgr.EnsurePortClosed(mapping.ExternalPort)
+			}
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "domain": domain})
 }

@@ -85,7 +85,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	setupH := api.NewSetupHandler(s.db, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
 	adminH := api.NewAdminHandler(s.cfg, s.db, s.prov, s.nginxMgr, s.sslMgr, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
-	userH := api.NewUserHandler(s.db, s.nginxMgr, s.sslMgr)
+	userH := api.NewUserHandler(s.cfg, s.db, s.nginxMgr, s.sslMgr)
 
 	r.Route("/api", func(apiR chi.Router) {
 		apiR.Get("/health", func(w http.ResponseWriter, r *http.Request) {

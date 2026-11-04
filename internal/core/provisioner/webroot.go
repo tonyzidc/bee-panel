@@ -16,6 +16,7 @@ func EnsureDomainWebroot(domain, homeDir string, uid, gid, targetPort int) (stri
 
 	var baseDir string
 	if homeDir != "" {
+		_ = os.Chmod(homeDir, 0711) // Allow webserver traversal while preventing directory listing by others
 		webParent := filepath.Join(homeDir, "web")
 		if err := os.MkdirAll(webParent, 0755); err != nil {
 			return "", fmt.Errorf("create web directory: %w", err)

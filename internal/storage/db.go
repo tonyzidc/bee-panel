@@ -433,3 +433,17 @@ func (db *DB) DeleteDomainMapping(domain string) error {
 	_, err := db.conn.Exec("DELETE FROM domain_mappings WHERE domain = ?", domain)
 	return err
 }
+
+// IsPortInUse checks if any domain mapping (other than excludeDomain) uses the specified port as external_port or target_container_port
+func (db *DB) IsPortInUse(port int, excludeDomain string) (bool, error) {
+	if port <= 0 {
+		return false, nil
+	}
+	var count int
+	query := `SELECT COUNT(*) FROM domain_mappings WHERE (external_port = ? OR target_container_port = ?) AND domain != ?`
+	err := db.conn.QueryRow(query, port, port, excludeDomain).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}

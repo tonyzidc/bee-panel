@@ -485,7 +485,16 @@
                     </div>
                   </td>
                   <td class="p-4 font-mono text-slate-600">:{{ d.external_port }}</td>
-                  <td class="p-4 font-mono text-slate-600">127.0.0.1:{{ d.target_container_port }}</td>
+                  <td class="p-4 font-mono text-slate-600">
+                    <span v-if="d.target_container_port > 0" class="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px]">
+                      <i class="fa-solid fa-bolt text-[10px] text-emerald-500"></i>
+                      <span>:{{ d.target_container_port }} (Proxy)</span>
+                    </span>
+                    <span v-else class="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[11px]">
+                      <i class="fa-solid fa-folder text-[10px] text-slate-400"></i>
+                      <span>Static Web</span>
+                    </span>
+                  </td>
                   <td class="p-4">
                     <span v-if="d.enable_ssl" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
                       <i class="fa-solid fa-lock text-[9px] mr-1"></i> HTTPS Active
@@ -1135,11 +1144,13 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">External Listen Port</label>
-              <input v-model.number="bindDomainForm.external_port" type="number" required placeholder="80" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <input v-model.number="bindDomainForm.external_port" type="number" placeholder="80" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <span class="text-[10px] text-slate-400 block mt-0.5">Default 80/443. Custom ports auto-open in Firewall.</span>
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Container Port</label>
-              <input v-model.number="bindDomainForm.target_container_port" type="number" required placeholder="8080" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Container Port <span class="text-slate-400 font-normal">(Optional)</span></label>
+              <input v-model.number="bindDomainForm.target_container_port" type="number" placeholder="e.g. 3000 (empty for static web)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <span class="text-[10px] text-slate-400 block mt-0.5">Leave empty for static web. Auto-opens in Firewall.</span>
             </div>
           </div>
           <div class="flex items-center space-x-2 pt-1">
@@ -1301,11 +1312,12 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">External Port</label>
-              <input v-model.number="editDomainForm.external_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <input v-model.number="editDomainForm.external_port" type="number" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Port</label>
-              <input v-model.number="editDomainForm.target_container_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Port <span class="text-slate-400 font-normal">(Optional)</span></label>
+              <input v-model.number="editDomainForm.target_container_port" type="number" placeholder="0 for static web" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+              <span class="text-[10px] text-slate-400 block mt-0.5">0 for static web. Auto-updates Firewall rules.</span>
             </div>
           </div>
 
@@ -1677,9 +1689,9 @@
         const createUserForm = ref({ username: '', password: '', public_key: '' });
         const creatingUser = ref(false);
         const changeUserPwdInput = ref('');
-        const bindDomainForm = ref({ tenant_id: 1, domain: '', external_port: 80, target_container_port: 8080, enable_ssl: false });
+        const bindDomainForm = ref({ tenant_id: 1, domain: '', external_port: 80, target_container_port: '', enable_ssl: false });
         const bindingDomain = ref(false);
-        const editDomainForm = ref({ domain: '', external_port: 80, target_container_port: 8080, enable_ssl: false });
+        const editDomainForm = ref({ domain: '', external_port: 80, target_container_port: '', enable_ssl: false });
         const savingEditDomain = ref(false);
         const sslDomainTarget = ref('');
         const customSSLForm = ref({ cert: '', key: '' });
@@ -2157,7 +2169,7 @@
             tenant_id: (tenants.value && tenants.value.length > 0) ? tenants.value[0].id : 1,
             domain: '',
             external_port: 80,
-            target_container_port: 8080,
+            target_container_port: '',
             enable_ssl: false
           };
           modalError.value = '';
@@ -2168,10 +2180,17 @@
           bindingDomain.value = true;
           modalError.value = '';
           try {
+            const payload = {
+              tenant_id: bindDomainForm.value.tenant_id,
+              domain: bindDomainForm.value.domain,
+              external_port: Number(bindDomainForm.value.external_port) || 80,
+              target_container_port: Number(bindDomainForm.value.target_container_port) || 0,
+              enable_ssl: !!bindDomainForm.value.enable_ssl
+            };
             const res = await fetch('/api/admin/domains', {
               method: 'POST',
               headers: authHeaders(),
-              body: JSON.stringify(bindDomainForm.value)
+              body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Failed to bind domain');
@@ -2185,7 +2204,7 @@
         };
 
         const deleteDomain = async (domain) => {
-          if (!confirm(`Delete reverse proxy configuration for domain '${domain}'?`)) return;
+          if (!confirm(`Delete reverse proxy configuration for domain '${domain}'? Associated firewall rules will be cleaned up automatically.`)) return;
           try {
             await fetch(`/api/admin/domains/${domain}`, { method: 'DELETE', headers: authHeaders() });
             await refreshData();
@@ -2198,7 +2217,7 @@
           editDomainForm.value = {
             domain: d.domain,
             external_port: d.external_port || 80,
-            target_container_port: d.target_container_port || 8080,
+            target_container_port: d.target_container_port > 0 ? d.target_container_port : '',
             enable_ssl: !!d.enable_ssl
           };
           modals.value.editDomain = true;
@@ -2207,14 +2226,15 @@
         const submitEditDomain = async () => {
           savingEditDomain.value = true;
           try {
+            const payload = {
+              external_port: Number(editDomainForm.value.external_port) || 80,
+              target_container_port: Number(editDomainForm.value.target_container_port) || 0,
+              enable_ssl: !!editDomainForm.value.enable_ssl
+            };
             const res = await fetch(`/api/admin/domains/${editDomainForm.value.domain}`, {
               method: 'PUT',
               headers: authHeaders(),
-              body: JSON.stringify({
-                external_port: editDomainForm.value.external_port,
-                target_container_port: editDomainForm.value.target_container_port,
-                enable_ssl: editDomainForm.value.enable_ssl
-              })
+              body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (res.ok) {

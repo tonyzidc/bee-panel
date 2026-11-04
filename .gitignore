@@ -34,3 +34,5 @@ data/
 .vscode/
 *.swp
 *.swo
+.agents/
+skills-lock.json

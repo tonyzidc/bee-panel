@@ -19,6 +19,7 @@ type VHostConfig struct {
 	SSLCertPath         string
 	SSLKeyPath          string
 	AcmeWebroot         string
+	WebRoot             string
 }
 
 type NginxManager struct {
@@ -57,6 +58,9 @@ func (nm *NginxManager) RenderVHost(cfg *VHostConfig) (string, error) {
 		} else {
 			cfg.ExternalPort = 80
 		}
+	}
+	if cfg.WebRoot == "" {
+		cfg.WebRoot = fmt.Sprintf("/var/www/vhosts/%s/public_html", cfg.Domain)
 	}
 
 	tmpl, err := template.New("nginx_vhost").Parse(nm.templateText)

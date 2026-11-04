@@ -39,6 +39,7 @@ server {
         root {{ .AcmeWebroot }};
     }
 
+{{ if gt .TargetContainerPort 0 }}
     location / {
         proxy_pass http://127.0.0.1:{{ .TargetContainerPort }};
         proxy_set_header Host $host;
@@ -49,6 +50,14 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
+{{ else }}
+    root {{ .WebRoot }};
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+{{ end }}
 }
 {{ else }}
 server {
@@ -62,6 +71,7 @@ server {
         root {{ .AcmeWebroot }};
     }
 
+{{ if gt .TargetContainerPort 0 }}
     location / {
         proxy_pass http://127.0.0.1:{{ .TargetContainerPort }};
         proxy_set_header Host $host;
@@ -72,5 +82,13 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
+{{ else }}
+    root {{ .WebRoot }};
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+{{ end }}
 }
 {{ end }}

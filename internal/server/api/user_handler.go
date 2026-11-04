@@ -8,23 +8,29 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"bee-panel/internal/config"
 	"bee-panel/internal/core/provisioner"
 	"bee-panel/internal/core/proxy"
+	"bee-panel/internal/core/security"
 	"bee-panel/internal/server/middleware"
 	"bee-panel/internal/storage"
 )
 
 type UserHandler struct {
+	cfg      *config.Config
 	db       *storage.DB
 	nginxMgr *proxy.NginxManager
 	sslMgr   *proxy.SSLManager
+	fwMgr    *security.FirewallManager
 }
 
-func NewUserHandler(db *storage.DB, nginxMgr *proxy.NginxManager, sslMgr *proxy.SSLManager) *UserHandler {
+func NewUserHandler(cfg *config.Config, db *storage.DB, nginxMgr *proxy.NginxManager, sslMgr *proxy.SSLManager) *UserHandler {
 	return &UserHandler{
+		cfg:      cfg,
 		db:       db,
 		nginxMgr: nginxMgr,
 		sslMgr:   sslMgr,
+		fwMgr:    security.NewFirewallManager(),
 	}
 }
 
@@ -66,9 +72,12 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Domain = cleanUserDomainFQDN(req.Domain)
-	if req.Domain == "" || req.TargetContainerPort <= 0 {
-		http.Error(w, `{"error":"domain and target_container_port are required"}`, http.StatusBadRequest)
+	if req.Domain == "" {
+		http.Error(w, `{"error":"domain is required"}`, http.StatusBadRequest)
 		return
+	}
+	if req.TargetContainerPort < 0 {
+		req.TargetContainerPort = 0
 	}
 	if req.ExternalPort <= 0 {
 		if req.EnableSSL {
@@ -89,20 +98,6 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		keyPath = cert.KeyPath
 	}
 
-	vhostCfg := &proxy.VHostConfig{
-		Domain:              req.Domain,
-		ExternalPort:        req.ExternalPort,
-		TargetContainerPort: req.TargetContainerPort,
-		EnableSSL:           req.EnableSSL,
-		SSLCertPath:         certPath,
-		SSLKeyPath:          keyPath,
-	}
-
-	if err := h.nginxMgr.ApplyVHost(vhostCfg); err != nil {
-		http.Error(w, `{"error":"failed to apply nginx vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
-		return
-	}
-
 	var tenantID int64 = 1
 	var homeDir string
 	var uid, gid int
@@ -116,6 +111,21 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webRoot, _ := provisioner.EnsureDomainWebroot(req.Domain, homeDir, uid, gid, req.TargetContainerPort)
+
+	vhostCfg := &proxy.VHostConfig{
+		Domain:              req.Domain,
+		ExternalPort:        req.ExternalPort,
+		TargetContainerPort: req.TargetContainerPort,
+		EnableSSL:           req.EnableSSL,
+		SSLCertPath:         certPath,
+		SSLKeyPath:          keyPath,
+		WebRoot:             webRoot,
+	}
+
+	if err := h.nginxMgr.ApplyVHost(vhostCfg); err != nil {
+		http.Error(w, `{"error":"failed to apply nginx vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
 
 	mapping := &storage.DomainMapping{
 		TenantID:            tenantID,
@@ -134,6 +144,14 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Automatically open firewall rules for configured ports
+	if req.ExternalPort > 0 && req.ExternalPort != 80 && req.ExternalPort != 443 {
+		_ = h.fwMgr.EnsurePortOpen(req.ExternalPort, "Domain: "+req.Domain+" (listen)")
+	}
+	if req.TargetContainerPort > 0 {
+		_ = h.fwMgr.EnsurePortOpen(req.TargetContainerPort, "Domain: "+req.Domain+" (app)")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(mapping)
 }
@@ -145,8 +163,30 @@ func (h *UserHandler) DeleteDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mapping, _ := h.db.GetDomainMapping(domain)
 	_ = h.nginxMgr.RemoveVHost(domain)
 	_ = h.db.DeleteDomainMapping(domain)
+
+	if mapping != nil {
+		adminPort := 8443
+		userPort := 3000
+		if h.cfg != nil {
+			adminPort = h.cfg.Server.AdminPort
+			userPort = h.cfg.Server.UserPort
+		}
+		// Clean up target container port if not used elsewhere
+		if mapping.TargetContainerPort > 0 && !security.IsSystemProtectedPort(mapping.TargetContainerPort, adminPort, userPort) {
+			if inUse, _ := h.db.IsPortInUse(mapping.TargetContainerPort, domain); !inUse {
+				_ = h.fwMgr.EnsurePortClosed(mapping.TargetContainerPort)
+			}
+		}
+		// Clean up external listen port if custom and not used elsewhere
+		if mapping.ExternalPort > 0 && mapping.ExternalPort != 80 && mapping.ExternalPort != 443 && !security.IsSystemProtectedPort(mapping.ExternalPort, adminPort, userPort) {
+			if inUse, _ := h.db.IsPortInUse(mapping.ExternalPort, domain); !inUse {
+				_ = h.fwMgr.EnsurePortClosed(mapping.ExternalPort)
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "domain": domain})

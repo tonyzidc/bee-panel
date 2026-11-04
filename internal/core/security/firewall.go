@@ -165,6 +165,64 @@ func (m *FirewallManager) Toggle(enable bool) error {
 	return nil
 }
 
+// IsSystemProtectedPort checks if the port belongs to critical infrastructure services that must not be deleted
+func IsSystemProtectedPort(port int, adminPort, userPort int) bool {
+	if port == 22 || port == 80 || port == 443 {
+		return true
+	}
+	if adminPort > 0 && port == adminPort {
+		return true
+	}
+	if userPort > 0 && port == userPort {
+		return true
+	}
+	return false
+}
+
+// EnsurePortOpen checks if a TCP port is open in UFW. If not, it executes `ufw allow <port>/tcp comment "<comment>"`
+func (m *FirewallManager) EnsurePortOpen(port int, comment string) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+	st, err := m.Status()
+	if err == nil {
+		portStr := strconv.Itoa(port)
+		for _, r := range st.Rules {
+			cleanTo := strings.Split(r.To, " ")[0]
+			if (cleanTo == portStr || cleanTo == portStr+"/tcp") && strings.Contains(strings.ToUpper(r.Action), "ALLOW") {
+				return nil
+			}
+		}
+	}
+	return m.AddRule(strconv.Itoa(port), "tcp", "allow", "any", comment)
+}
+
+// EnsurePortClosed deletes UFW allow rule for a TCP port using `ufw delete allow <port>/tcp`
+func (m *FirewallManager) EnsurePortClosed(port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+	cmd := exec.Command("ufw", "delete", "allow", fmt.Sprintf("%d/tcp", port))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		outStr := string(out)
+		if strings.Contains(outStr, "non-existent") {
+			return nil
+		}
+		// Also try without /tcp in case it was stored as a bare port rule
+		cmd2 := exec.Command("ufw", "delete", "allow", strconv.Itoa(port))
+		out2, err2 := cmd2.CombinedOutput()
+		if err2 != nil {
+			outStr2 := string(out2)
+			if strings.Contains(outStr2, "non-existent") {
+				return nil
+			}
+			return fmt.Errorf("failed to delete ufw rule for port %d: %s / %s", port, outStr, outStr2)
+		}
+	}
+	return nil
+}
+
 // Reload reloads UFW configuration
 func (m *FirewallManager) Reload() error {
 	cmd := exec.Command("ufw", "reload")

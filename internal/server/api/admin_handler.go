@@ -570,13 +570,26 @@ func (h *AdminHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(domains)
 }
 
+func cleanDomainFQDN(domain string) string {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	d = strings.TrimPrefix(d, "http://")
+	d = strings.TrimPrefix(d, "https://")
+	if idx := strings.Index(d, "/"); idx != -1 {
+		d = d[:idx]
+	}
+	if idx := strings.Index(d, ":"); idx != -1 {
+		d = d[:idx]
+	}
+	return strings.TrimSpace(d)
+}
+
 func (h *AdminHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 	var req BindDomainAdminRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, `{"error":"invalid request payload"}`, http.StatusBadRequest)
 		return
 	}
-	req.Domain = strings.ToLower(strings.TrimSpace(req.Domain))
+	req.Domain = cleanDomainFQDN(req.Domain)
 	if req.Domain == "" || req.TargetContainerPort <= 0 {
 		http.Error(w, `{"error":"domain and target port are required"}`, http.StatusBadRequest)
 		return
@@ -915,7 +928,11 @@ func (h *AdminHandler) SetPanelDomain(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"domain is required"}`, http.StatusBadRequest)
 		return
 	}
-	domain := strings.TrimSpace(req.Domain)
+	domain := cleanDomainFQDN(req.Domain)
+	if domain == "" {
+		http.Error(w, `{"error":"invalid domain format"}`, http.StatusBadRequest)
+		return
+	}
 
 	// Obtain SSL if requested
 	sslCertPath := ""

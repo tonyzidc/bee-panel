@@ -43,6 +43,19 @@ func (h *UserHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(domains)
 }
 
+func cleanUserDomainFQDN(domain string) string {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	d = strings.TrimPrefix(d, "http://")
+	d = strings.TrimPrefix(d, "https://")
+	if idx := strings.Index(d, "/"); idx != -1 {
+		d = d[:idx]
+	}
+	if idx := strings.Index(d, ":"); idx != -1 {
+		d = d[:idx]
+	}
+	return strings.TrimSpace(d)
+}
+
 func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 	var req BindDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -50,7 +63,7 @@ func (h *UserHandler) BindDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Domain = strings.ToLower(strings.TrimSpace(req.Domain))
+	req.Domain = cleanUserDomainFQDN(req.Domain)
 	if req.Domain == "" || req.TargetContainerPort <= 0 {
 		http.Error(w, `{"error":"domain and target_container_port are required"}`, http.StatusBadRequest)
 		return

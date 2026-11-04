@@ -222,7 +222,7 @@
             <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
               <div>
                 <span class="text-xs text-slate-500 font-semibold block">TENANTS (ISOLATED USERS)</span>
-                <span class="text-2xl font-bold text-slate-900">{{ tenants.length }}</span>
+                <span class="text-2xl font-bold text-slate-900">{{ (tenants && tenants.length) || 0 }}</span>
                 <span class="text-xs text-emerald-600 block mt-1"><i class="fa-solid fa-circle-check text-[10px] mr-1"></i>Zero-Root UserNS</span>
               </div>
               <button @click="activeTab = 'users'" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">Manage</button>
@@ -231,7 +231,7 @@
             <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex items-center justify-between">
               <div>
                 <span class="text-xs text-slate-500 font-semibold block">DOCKER CONTAINERS</span>
-                <span class="text-2xl font-bold text-slate-900">{{ metrics.containers_count || containers.length }}</span>
+                <span class="text-2xl font-bold text-slate-900">{{ metrics.containers_count || (containers && containers.length) || 0 }}</span>
                 <span class="text-xs text-indigo-600 block mt-1"><i class="fa-brands fa-docker text-[11px] mr-1"></i>Pasta Network Driver</span>
               </div>
               <button @click="activeTab = 'docker'" class="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium">Explorer</button>
@@ -286,7 +286,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200 text-slate-700">
-                <tr v-if="tenants.length === 0">
+                <tr v-if="!tenants || tenants.length === 0">
                   <td colspan="6" class="p-8 text-center text-slate-400">
                     No tenant users provisioned yet. Click "Create User" to add one!
                   </td>
@@ -356,7 +356,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200 text-slate-700">
-                <tr v-if="containers.length === 0">
+                <tr v-if="!containers || containers.length === 0">
                   <td colspan="6" class="p-8 text-center text-slate-400">
                     No Docker containers currently discovered on any tenant sockets.
                   </td>
@@ -434,7 +434,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-200 text-slate-700">
-                <tr v-if="domains.length === 0">
+                <tr v-if="!domains || domains.length === 0">
                   <td colspan="6" class="p-8 text-center text-slate-400">
                     No domains configured yet. Click "Bind Domain" to setup reverse proxy routing!
                   </td>
@@ -1332,8 +1332,31 @@
         const swapUsagePercent = computed(() => metrics.value.swap_total_mb ? Math.round((metrics.value.swap_used_mb / metrics.value.swap_total_mb) * 100) : 0);
         const diskUsagePercent = computed(() => metrics.value.disk_total_gb ? Math.round((metrics.value.disk_used_gb / metrics.value.disk_total_gb) * 100) : 0);
 
-        // URL Query Routing
+        // URL Path and Query Routing
         const syncFromUrl = () => {
+          // 1. Inspect pathname
+          const rawPath = window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+          if (rawPath === 'domains' || rawPath === 'domain') {
+            activeTab.value = 'domains';
+          } else if (rawPath === 'users' || rawPath === 'user') {
+            activeTab.value = 'users';
+          } else if (rawPath === 'docker' || rawPath === 'containers' || rawPath === 'container') {
+            activeTab.value = 'docker';
+          } else if (rawPath === 'security') {
+            activeTab.value = 'security';
+          } else if (rawPath === 'firewall') {
+            activeTab.value = 'security';
+            secSubTab.value = 'firewall';
+          } else if (rawPath === 'fail2ban') {
+            activeTab.value = 'security';
+            secSubTab.value = 'fail2ban';
+          } else if (rawPath === 'settings' || rawPath === 'setting') {
+            activeTab.value = 'settings';
+          } else if (rawPath === 'dashboard') {
+            activeTab.value = 'dashboard';
+          }
+
+          // 2. Query parameters supplement or override
           const params = new URLSearchParams(window.location.search);
           const tab = params.get('tab');
           if (tab && ['dashboard', 'users', 'docker', 'domains', 'security', 'settings'].includes(tab)) {
@@ -1346,16 +1369,15 @@
         };
 
         const syncToUrl = () => {
-          const params = new URLSearchParams(window.location.search);
-          params.set('tab', activeTab.value);
-          if (activeTab.value === 'security') {
-            params.set('sub', secSubTab.value);
-          } else {
-            params.delete('sub');
+          let targetPath = activeTab.value === 'dashboard' ? '/' : '/' + activeTab.value;
+          let targetSearch = '';
+          if (activeTab.value === 'security' && secSubTab.value === 'fail2ban') {
+            targetSearch = '?sub=fail2ban';
           }
-          const newUrl = window.location.pathname + '?' + params.toString();
-          if (window.location.search !== '?' + params.toString()) {
-            window.history.pushState({ tab: activeTab.value, sub: secSubTab.value }, '', newUrl);
+          const currentFull = window.location.pathname + window.location.search;
+          const targetFull = targetPath + targetSearch;
+          if (currentFull !== targetFull && window.location.pathname !== targetPath) {
+            window.history.pushState({ tab: activeTab.value, sub: secSubTab.value }, '', targetFull);
           }
         };
 
@@ -1459,11 +1481,17 @@
               fetch('/api/admin/system/version', { headers: authHeaders() })
             ]);
 
-            if (mRes.ok) metrics.value = await mRes.json();
-            if (tRes.ok) tenants.value = await tRes.json();
-            if (dRes.ok) domains.value = await dRes.json();
-            if (fwRes.ok) firewallStatus.value = await fwRes.json();
-            if (f2bRes.ok) fail2banStatus.value = await f2bRes.json();
+            if (mRes.ok) metrics.value = (await mRes.json()) || {};
+            if (tRes.ok) {
+              const td = await tRes.json();
+              tenants.value = Array.isArray(td) ? td : [];
+            }
+            if (dRes.ok) {
+              const dd = await dRes.json();
+              domains.value = Array.isArray(dd) ? dd : [];
+            }
+            if (fwRes.ok) firewallStatus.value = (await fwRes.json()) || {};
+            if (f2bRes.ok) fail2banStatus.value = (await f2bRes.json()) || {};
             if (setRes.ok) {
               const s = await setRes.json();
               const cfg = s.config || {};
@@ -1493,7 +1521,10 @@
           loadingContainers.value = true;
           try {
             const res = await fetch('/api/admin/docker/containers', { headers: authHeaders() });
-            if (res.ok) containers.value = await res.json();
+            if (res.ok) {
+              const cd = await res.json();
+              containers.value = Array.isArray(cd) ? cd : [];
+            }
           } catch (e) {
             console.error('Containers error:', e);
           } finally {
@@ -1654,7 +1685,7 @@
         // Domain actions
         const openBindDomainModal = () => {
           bindDomainForm.value = {
-            tenant_id: tenants.value.length > 0 ? tenants.value[0].id : 1,
+            tenant_id: (tenants.value && tenants.value.length > 0) ? tenants.value[0].id : 1,
             domain: '',
             external_port: 80,
             target_container_port: 8080,

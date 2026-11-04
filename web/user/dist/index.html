@@ -47,15 +47,15 @@
           <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <span class="text-xs font-semibold text-slate-700 block mb-1.5">1. Terminal SSH Command:</span>
             <div class="flex items-center justify-between bg-white px-3 py-2 rounded-lg font-mono text-xs text-slate-800 border border-slate-200">
-              <span class="truncate">ssh &lt;username&gt;@&lt;server-ip&gt; -p 22</span>
-              <button @click="copyText('ssh username@server-ip -p 22')" class="text-slate-500 hover:text-slate-800 text-xs ml-2 font-sans font-semibold">Copy</button>
+              <span class="truncate">ssh username@{{ serverHost }} -p 22</span>
+              <button @click="copySSH" class="text-slate-500 hover:text-slate-800 text-xs ml-2 font-sans font-semibold">Copy</button>
             </div>
           </div>
           <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <span class="text-xs font-semibold text-slate-700 block mb-1.5">2. Docker Socket Environment:</span>
             <div class="flex items-center justify-between bg-white px-3 py-2 rounded-lg font-mono text-xs text-cyan-700 border border-slate-200">
               <span class="truncate">export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"</span>
-              <button @click="copyText('export DOCKER_HOST=\"unix://$XDG_RUNTIME_DIR/docker.sock\"')" class="text-slate-500 hover:text-slate-800 text-xs ml-2 font-sans font-semibold">Copy</button>
+              <button @click="copyDockerHost" class="text-slate-500 hover:text-slate-800 text-xs ml-2 font-sans font-semibold">Copy</button>
             </div>
           </div>
         </div>
@@ -89,7 +89,7 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 text-slate-700">
-              <tr v-if="domains.length === 0">
+              <tr v-if="!domains || domains.length === 0">
                 <td colspan="5" class="p-8 text-center text-slate-400">
                   No domains bound yet. Click "Bind Domain" to route your container traffic.
                 </td>
@@ -202,6 +202,7 @@
         const bindError = ref('');
         const bindForm = ref({ domain: '', external_port: 80, target_container_port: 18080, enable_ssl: false });
 
+        const serverHost = ref(window.location.hostname || 'server-ip');
         const showLogsModal = ref(false);
         const activeLogDomain = ref('');
         const logLines = ref([]);
@@ -209,10 +210,24 @@
         const loadDomains = async () => {
           try {
             const res = await fetch('/api/user/domains');
-            if (res.ok) domains.value = await res.json();
+            if (res.ok) {
+              const data = await res.json();
+              domains.value = Array.isArray(data) ? data : [];
+            } else {
+              domains.value = [];
+            }
           } catch (e) {
             console.error('Failed to load domains', e);
+            domains.value = [];
           }
+        };
+
+        const copySSH = () => {
+          copyText(`ssh <username>@${serverHost.value} -p 22`);
+        };
+
+        const copyDockerHost = () => {
+          copyText('export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"');
         };
 
         const handleBindDomain = async () => {
@@ -285,9 +300,9 @@
         });
 
         return {
-          domains, showBindModal, binding, bindError, bindForm,
+          serverHost, domains, showBindModal, binding, bindError, bindForm,
           showLogsModal, activeLogDomain, logLines,
-          loadDomains, handleBindDomain, deleteDomain, viewLogs, renewSSL, copyText
+          loadDomains, handleBindDomain, deleteDomain, viewLogs, renewSSL, copyText, copySSH, copyDockerHost
         };
       }
     }).mount('#app');

@@ -254,7 +254,7 @@ func (db *DB) ListTenants() ([]*Tenant, error) {
 	}
 	defer rows.Close()
 
-	var list []*Tenant
+	list := make([]*Tenant, 0)
 	for rows.Next() {
 		t := &Tenant{}
 		if err := rows.Scan(&t.ID, &t.Username, &t.UID, &t.GID, &t.HomeDir, &t.Status, &t.DockerSocket, &t.PasswordPlain, &t.PrivateKey, &t.PublicKey, &t.CreatedAt, &t.UpdatedAt); err != nil {
@@ -327,7 +327,7 @@ func (db *DB) ListDomainMappings(tenantID int64) ([]*DomainMapping, error) {
 	}
 	defer rows.Close()
 
-	var list []*DomainMapping
+	list := make([]*DomainMapping, 0)
 	for rows.Next() {
 		m := &DomainMapping{}
 		if err := rows.Scan(&m.ID, &m.TenantID, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {
@@ -352,7 +352,7 @@ func (db *DB) ListDomainMappingsWithTenant() ([]*DomainMapping, error) {
 	}
 	defer rows.Close()
 
-	var list []*DomainMapping
+	list := make([]*DomainMapping, 0)
 	for rows.Next() {
 		m := &DomainMapping{}
 		if err := rows.Scan(&m.ID, &m.TenantID, &m.TenantUsername, &m.Domain, &m.ExternalPort, &m.TargetContainerPort, &m.EnableSSL, &m.SSLCertPath, &m.SSLKeyPath, &m.CreatedAt); err != nil {

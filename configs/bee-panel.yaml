@@ -1,0 +1,21 @@
+server:
+  admin_port: 8443
+  user_port: 3000
+  host: "0.0.0.0"
+  jwt_secret: "change-me-in-production-bee-panel-secret-key"
+  jwt_expiry_hours: 72
+
+storage:
+  db_path: "/var/lib/bee-panel/bee-panel.db"
+
+ports:
+  min_port: 10000
+  max_port: 60000
+
+proxy:
+  nginx_conf_dir: "/etc/nginx/sites-available"
+  nginx_enabled_dir: "/etc/nginx/sites-enabled"
+  acme_webroot: "/var/www/bee-acme"
+
+docker:
+  network_driver: "pasta"

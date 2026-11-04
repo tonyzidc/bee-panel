@@ -1,0 +1,17 @@
+[Unit]
+Description=Bee Panel Control Plane Daemon
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/bee-panel
+Restart=always
+RestartSec=3s
+Environment="GOMEMLIMIT=48MiB"
+MemoryMax=80M
+MemoryHigh=64M
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

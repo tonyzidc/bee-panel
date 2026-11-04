@@ -68,7 +68,7 @@ func main() {
 		cfg.Proxy.AcmeWebroot,
 		templates.NginxVHostTemplate,
 	)
-	sslMgr := proxy.NewSSLManager(cfg.Proxy.AcmeWebroot, "admin@bee-panel.local", logger)
+	sslMgr := proxy.NewSSLManager(cfg.Proxy.AcmeWebroot, "devops@cloudbee.io", logger)
 
 	// 3. Start Background SSL Auto-Renew Worker
 	ctx, cancel := context.WithCancel(context.Background())

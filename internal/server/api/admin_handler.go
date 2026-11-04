@@ -950,13 +950,13 @@ func (h *AdminHandler) SetPanelDomain(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Try obtaining certificate via Let's Encrypt
-		_, err := h.sslMgr.ObtainCertificate(domain)
+		certInfo, err := h.sslMgr.ObtainCertificate(domain)
 		if err != nil {
 			http.Error(w, `{"error":"failed to obtain SSL certificate for `+domain+`: `+err.Error()+`"}`, http.StatusInternalServerError)
 			return
 		}
-		sslCertPath = fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", domain)
-		sslKeyPath = fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", domain)
+		sslCertPath = certInfo.CertPath
+		sslKeyPath = certInfo.KeyPath
 	}
 
 	// Apply final vhost

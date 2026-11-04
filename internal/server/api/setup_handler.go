@@ -72,7 +72,7 @@ func (h *SetupHandler) RegisterInitialAdmin(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if req.Email == "" {
-		req.Email = req.Username + "@bee-panel.local"
+		req.Email = req.Username + "@cloudbee.io"
 	}
 
 	if err := h.db.CreateAdmin(req.Username, req.Password, req.Email); err != nil {

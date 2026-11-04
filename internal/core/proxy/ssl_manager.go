@@ -23,12 +23,31 @@ type SSLManager struct {
 	logger      *slog.Logger
 }
 
+func isValidPublicEmail(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" || !strings.Contains(email, "@") {
+		return false
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	domain := strings.ToLower(parts[1])
+	if strings.HasSuffix(domain, ".local") || strings.HasSuffix(domain, ".internal") || strings.HasSuffix(domain, ".localhost") || !strings.Contains(domain, ".") {
+		return false
+	}
+	return true
+}
+
 func NewSSLManager(acmeWebroot, adminEmail string, logger *slog.Logger) *SSLManager {
 	if acmeWebroot == "" {
 		acmeWebroot = "/var/www/bee-acme"
 	}
-	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
+	if !isValidPublicEmail(adminEmail) {
 		adminEmail = "devops@cloudbee.io"
+	}
+	if logger == nil {
+		logger = slog.Default()
 	}
 	return &SSLManager{
 		acmeWebroot: acmeWebroot,
@@ -176,15 +195,42 @@ func (sm *SSLManager) RequestCertificate(domain string) (certPath, keyPath strin
 		"--webroot",
 		"-w", sm.acmeWebroot,
 		"-d", domain,
-		"--email", sm.adminEmail,
 		"--agree-tos",
 		"--no-eff-email",
 		"--non-interactive",
 		"--keep-until-expiring",
 	}
 
+	if isValidPublicEmail(sm.adminEmail) {
+		args = append(args, "--email", sm.adminEmail)
+	} else {
+		args = append(args, "--register-unsafely-without-email")
+	}
+
 	cmd := exec.Command("certbot", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
+		sm.logger.Warn("Certbot challenge failed, trying acme.sh fallback", "domain", domain, "error", string(out))
+		// Fallback to acme.sh
+		if acmeBin, aErr := sm.ensureAcmeSh(); aErr == nil {
+			acmeArgs := []string{
+				"--issue",
+				"--server", "letsencrypt",
+				"-d", domain,
+				"--webroot", sm.acmeWebroot,
+			}
+			aCmd := exec.Command(acmeBin, acmeArgs...)
+			aOut, aIssueErr := aCmd.CombinedOutput()
+			if aIssueErr == nil || strings.Contains(string(aOut), "Skipping") || strings.Contains(string(aOut), "Domains not changed") {
+				targetDir := filepath.Join("/etc/ssl/bee-panel", domain)
+				_ = os.MkdirAll(targetDir, 0700)
+				targetCert := filepath.Join(targetDir, "fullchain.pem")
+				targetKey := filepath.Join(targetDir, "privkey.pem")
+				_ = exec.Command(acmeBin, "--install-cert", "-d", domain, "--fullchain-file", targetCert, "--key-file", targetKey, "--reloadcmd", "nginx -s reload").Run()
+				if _, statErr := os.Stat(targetCert); statErr == nil {
+					return targetCert, targetKey, nil
+				}
+			}
+		}
 		return "", "", fmt.Errorf("certbot failed: %s (%w)", string(out), err)
 	}
 

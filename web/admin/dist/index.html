@@ -552,11 +552,52 @@
           </div>
 
           <!-- Subtab 2: Fail2ban -->
-          <div v-if="secSubTab === 'fail2ban'" class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div v-if="secSubTab === 'fail2ban'" class="space-y-6">
+            <!-- Fail2ban Configuration Card -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <div>
+                  <h3 class="font-bold text-slate-900 text-base flex items-center">
+                    <i class="fa-solid fa-sliders text-amber-500 mr-2"></i> Fail2ban Configuration (/etc/fail2ban/jail.local)
+                  </h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Configure ban durations, detection windows, retry limits, and IP whitelists.</p>
+                </div>
+                <button @click="saveFail2banConfig" :disabled="savingF2BConfig" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                  {{ savingF2BConfig ? 'Saving...' : 'Save Configuration' }}
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Ban Duration (bantime)</label>
+                  <input v-model="fail2banConfig.bantime" placeholder="e.g. 1h, 24h, 3600" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">How long offending IPs stay blocked.</span>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Find Window (findtime)</label>
+                  <input v-model="fail2banConfig.findtime" placeholder="e.g. 10m, 600" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">Time window for counting failures.</span>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Max Retry (maxretry)</label>
+                  <input v-model.number="fail2banConfig.maxretry" type="number" min="1" max="100" placeholder="5" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  <span class="text-[10px] text-slate-400 mt-0.5 block">Failed attempts before ban is triggered.</span>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Whitelist / Ignore IPs (ignoreip)</label>
+                <input v-model="fail2banConfig.ignoreip" placeholder="127.0.0.1/8 ::1 192.168.1.0/24" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                <span class="text-[10px] text-slate-400 mt-0.5 block">Space-separated IP addresses or CIDR subnets that are never banned.</span>
+              </div>
+            </div>
+
+            <!-- Banned IPs Card -->
+            <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
             <div class="p-4 md:p-6 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <div class="flex items-center space-x-2">
-                  <h3 class="font-bold text-slate-900 text-base">Fail2ban Intrusion Defense</h3>
+                  <h3 class="font-bold text-slate-900 text-base">Active Banned IP Addresses</h3>
                   <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold" :class="fail2banStatus.active ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600 border border-slate-200'">
                     {{ fail2banStatus.active ? 'Active' : 'Inactive' }}
                   </span>
@@ -726,22 +767,88 @@
               </form>
             </div>
 
-            <!-- Admin Profile & Security -->
+            <!-- Custom Panel Domain Card -->
             <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-              <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
-                <i class="fa-solid fa-user-gear text-indigo-600 mr-2"></i> Admin Account Credentials
-              </h3>
-              <p class="text-xs text-slate-500 mb-4">Update administrator email or change login password.</p>
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="font-bold text-slate-900 text-base flex items-center">
+                  <i class="fa-solid fa-globe text-cyan-600 mr-2 text-lg"></i> Custom Panel Domain Binding
+                </h3>
+                <span v-if="settingsForm.server.panel_domain" class="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[11px] font-bold">
+                  Active Domain
+                </span>
+              </div>
+              <p class="text-xs text-slate-500 mb-4">
+                Bind a custom domain (e.g. <code class="text-cyan-700 font-mono">panel.example.com</code>) to access Bee Panel without entering the <code class="text-slate-700 font-mono">IP:8443</code> port.
+              </p>
 
-              <form @submit.prevent="updateAdminPassword" class="space-y-4">
+              <div v-if="settingsForm.server.panel_domain" class="p-3.5 bg-cyan-50 border border-cyan-200 rounded-xl mb-4 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Change Admin Password</label>
-                  <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New strong password" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                  <span class="text-slate-600 block">Current Panel URL:</span>
+                  <a :href="(settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain" target="_blank" class="font-mono font-bold text-cyan-700 hover:underline text-sm">
+                    {{ (settingsForm.server.panel_ssl ? 'https://' : 'http://') + settingsForm.server.panel_domain }}
+                  </a>
                 </div>
-                <button type="submit" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition shadow-sm">
-                  Update Password
+                <button type="button" @click="removePanelDomain" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold self-start sm:self-auto">
+                  <i class="fa-solid fa-unlink mr-1"></i> Unbind Domain
+                </button>
+              </div>
+
+              <form @submit.prevent="bindPanelDomain" class="space-y-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Domain FQDN</label>
+                  <input v-model="panelDomainForm.domain" required placeholder="panel.yourdomain.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+                  <span class="text-[10px] text-slate-400 mt-1 block">Point your domain's DNS A-record to <strong>64.118.143.89</strong> before binding.</span>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                  <input v-model="panelDomainForm.ssl" type="checkbox" id="panelSSLCheck" class="w-4 h-4 rounded text-cyan-600 border-slate-300">
+                  <label for="panelSSLCheck" class="text-xs font-semibold text-slate-700">Automatically issue Let's Encrypt SSL (HTTPS)</label>
+                </div>
+
+                <button type="submit" :disabled="bindingPanelDomain" class="w-full py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                  {{ bindingPanelDomain ? 'Configuring Reverse Proxy...' : (settingsForm.server.panel_domain ? 'Update Panel Domain' : 'Bind Domain to Panel') }}
                 </button>
               </form>
+            </div>
+
+            <!-- Admin Profile & Security -->
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+              <div>
+                <h3 class="font-bold text-slate-900 text-base mb-1 flex items-center">
+                  <i class="fa-solid fa-user-pen text-indigo-600 mr-2"></i> Admin Account Profile
+                </h3>
+                <p class="text-xs text-slate-500 mb-4">Update administrator account username and email address.</p>
+
+                <form @submit.prevent="updateAdminProfile" class="space-y-4">
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Username</label>
+                    <input v-model="adminProfileForm.username" required placeholder="admin" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+                    <input v-model="adminProfileForm.email" type="email" required placeholder="admin@example.com" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                  </div>
+                  <button type="submit" :disabled="savingAdminProfile" class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition shadow-sm disabled:opacity-50">
+                    {{ savingAdminProfile ? 'Updating Profile...' : 'Save Profile Changes' }}
+                  </button>
+                </form>
+              </div>
+
+              <div class="pt-4 border-t border-slate-200">
+                <h4 class="font-bold text-slate-900 text-sm mb-1 flex items-center">
+                  <i class="fa-solid fa-key text-amber-600 mr-2"></i> Change Password
+                </h4>
+                <p class="text-xs text-slate-500 mb-3">Set a new strong password for administrator login.</p>
+
+                <form @submit.prevent="updateAdminPassword" class="space-y-3">
+                  <div>
+                    <input v-model="newAdminPassword" type="password" required minlength="8" placeholder="New password (min 8 chars)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+                  </div>
+                  <button type="submit" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl transition shadow-sm">
+                    Update Password
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
 
@@ -974,7 +1081,7 @@
     <div v-if="modals.addFwRule" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
       <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
         <h3 class="text-base font-bold text-slate-900 mb-1">Add Firewall Rule</h3>
-        <p class="text-xs text-slate-500 mb-4">Open or block a port or port range in UFW.</p>
+        <p class="text-xs text-slate-500 mb-4">Open or block a port in UFW with optional source IP filter.</p>
 
         <form @submit.prevent="submitAddFwRule" class="space-y-4">
           <div>
@@ -998,9 +1105,29 @@
               </select>
             </div>
           </div>
+
+          <!-- Source Traffic Selection -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Source Traffic (From)</label>
+            <div class="grid grid-cols-2 gap-2 mb-2">
+              <label class="flex items-center space-x-2 p-2.5 border rounded-xl cursor-pointer text-xs transition" :class="fwSourceType === 'everywhere' ? 'bg-amber-50 border-amber-300 font-bold text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'">
+                <input type="radio" v-model="fwSourceType" value="everywhere" class="text-amber-600 focus:ring-0">
+                <span>Everywhere (Any IP)</span>
+              </label>
+              <label class="flex items-center space-x-2 p-2.5 border rounded-xl cursor-pointer text-xs transition" :class="fwSourceType === 'specific' ? 'bg-amber-50 border-amber-300 font-bold text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'">
+                <input type="radio" v-model="fwSourceType" value="specific" class="text-amber-600 focus:ring-0">
+                <span>Specific IP / CIDR</span>
+              </label>
+            </div>
+            <div v-if="fwSourceType === 'specific'">
+              <input v-model="fwRuleForm.from" required placeholder="e.g. 203.0.113.10 or 192.168.1.0/24" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900">
+              <span class="text-[10px] text-slate-400 mt-1 block">Specify single IP or CIDR range to restrict access.</span>
+            </div>
+          </div>
+
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Comment (Optional)</label>
-            <input v-model="fwRuleForm.comment" placeholder="e.g. Redis internal port" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            <input v-model="fwRuleForm.comment" placeholder="e.g. Custom service port" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
           </div>
 
           <div class="flex items-center justify-end space-x-2 pt-2">
@@ -1038,10 +1165,90 @@
       </div>
     </div>
 
+    <!-- Modal 8: Edit Domain Modal -->
+    <div v-if="modals.editDomain" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 shadow-2xl">
+        <h3 class="text-base font-bold text-slate-900 mb-1">Edit Domain: {{ editDomainForm.domain }}</h3>
+        <p class="text-xs text-slate-500 mb-4">Modify target container routing port or toggle SSL.</p>
+
+        <form @submit.prevent="submitEditDomain" class="space-y-4">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">External Port</label>
+              <input v-model.number="editDomainForm.external_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Target Port</label>
+              <input v-model.number="editDomainForm.target_container_port" type="number" required class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-900">
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-2 pt-1">
+            <input v-model="editDomainForm.enable_ssl" type="checkbox" id="editDomainSSL" class="w-4 h-4 rounded text-cyan-600 border-slate-300">
+            <label for="editDomainSSL" class="text-xs font-medium text-slate-700">Enable SSL / HTTPS</label>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-2">
+            <button type="button" @click="modals.editDomain = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" :disabled="savingEditDomain" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl text-xs disabled:opacity-50">
+              {{ savingEditDomain ? 'Saving...' : 'Save Changes' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal 9: SSL Certificate Management Modal -->
+    <div v-if="modals.ssl" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">SSL Management: {{ sslDomainTarget }}</h3>
+            <span class="text-xs text-slate-500">Auto-issue Let's Encrypt or upload custom certificate</span>
+          </div>
+          <button @click="modals.ssl = false" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+        </div>
+
+        <!-- Option 1: Let's Encrypt -->
+        <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i class="fa-solid fa-certificate text-emerald-600 text-base"></i>
+              <span class="font-bold text-xs text-emerald-900">Let's Encrypt Auto-Renewal</span>
+            </div>
+            <button type="button" @click="triggerSSLRenew(sslDomainTarget)" :disabled="renewingSSL" class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg transition disabled:opacity-50 shadow-sm">
+              {{ renewingSSL ? 'Issuing...' : 'Obtain / Renew Now' }}
+            </button>
+          </div>
+          <p class="text-[11px] text-emerald-700">Domain DNS must point directly to this server: <strong>64.118.143.89</strong>.</p>
+        </div>
+
+        <!-- Option 2: Custom SSL -->
+        <form @submit.prevent="submitCustomSSL" class="space-y-3 pt-1">
+          <span class="text-xs font-bold text-slate-800 block">Upload Custom SSL Certificate</span>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Certificate (.crt / fullchain.pem)</label>
+            <textarea v-model="customSSLForm.cert" required rows="3" placeholder="-----BEGIN CERTIFICATE-----..." class="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-[10px] font-mono text-slate-800"></textarea>
+          </div>
+          <div>
+            <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">Private Key (.key / privkey.pem)</label>
+            <textarea v-model="customSSLForm.key" required rows="3" placeholder="-----BEGIN PRIVATE KEY-----..." class="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-[10px] font-mono text-slate-800"></textarea>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-1">
+            <button type="button" @click="modals.ssl = false" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium">Cancel</button>
+            <button type="submit" :disabled="uploadingCustomSSL" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs disabled:opacity-50">
+              {{ uploadingCustomSSL ? 'Installing...' : 'Install Custom SSL' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   <script>
-    const { createApp, ref, computed, onMounted } = Vue;
+    const { createApp, ref, computed, onMounted, watch } = Vue;
     createApp({
       setup() {
         const loading = ref(true);
@@ -1054,6 +1261,15 @@
         const activeTab = ref('dashboard');
         const secSubTab = ref('firewall');
 
+        const defaultSettings = () => ({
+          server: { admin_port: 8443, user_port: 3000, host: '0.0.0.0', jwt_secret: '', jwt_expiry_hours: 72, panel_domain: '', panel_ssl: false },
+          storage: { db_path: '/var/lib/bee-panel/bee-panel.db' },
+          ports: { min_port: 10000, max_port: 60000 },
+          proxy: { nginx_conf_dir: '/etc/nginx/sites-available', nginx_enabled_dir: '/etc/nginx/sites-enabled', acme_webroot: '/var/www/bee-acme' },
+          docker: { network_driver: 'pasta' },
+          telegram: { enabled: false, bot_token: '', chat_id: '', notify_on_login: true, notify_on_tenant_created: true, notify_on_ssl: true, notify_on_security: true }
+        });
+
         const setupForm = ref({ username: 'admin', email: '', password: '' });
         const loginForm = ref({ username: '', password: '' });
         const metrics = ref({ cpu_usage_percent: 0, cpu_cores: 1, memory_total_mb: 0, memory_used_mb: 0, memory_free_mb: 0, swap_total_mb: 0, swap_used_mb: 0, disk_total_gb: 0, disk_used_gb: 0, disk_free_gb: 0 });
@@ -1062,8 +1278,10 @@
         const domains = ref([]);
         const firewallStatus = ref({ enabled: false, rules: [] });
         const fail2banStatus = ref({ active: false, jails: [], banned_list: [] });
-        const settingsForm = ref({ server: {}, ports: {}, proxy: {}, docker: {}, telegram: {} });
-        const versionInfo = ref({ version: 'v0.1.0', arch: '', os: '', go_version: '' });
+        const fail2banConfig = ref({ bantime: '1h', findtime: '10m', maxretry: 5, ignoreip: '127.0.0.1/8 ::1' });
+        const savingF2BConfig = ref(false);
+        const settingsForm = ref(defaultSettings());
+        const versionInfo = ref({ version: 'v0.2.0', arch: '', os: '', go_version: '' });
         const latestRelease = ref(null);
         const updateAvailable = ref(false);
         const checkingUpdate = ref(false);
@@ -1072,6 +1290,10 @@
         const newSSHPort = ref(22);
         const changingSSH = ref(false);
         const newAdminPassword = ref('');
+        const adminProfileForm = ref({ username: localStorage.getItem('bee_user') || 'admin', email: '' });
+        const savingAdminProfile = ref(false);
+        const panelDomainForm = ref({ domain: '', ssl: false });
+        const bindingPanelDomain = ref(false);
         const testingTg = ref(false);
 
         // Modals state
@@ -1079,6 +1301,8 @@
           createUser: false,
           credentials: false,
           bindDomain: false,
+          editDomain: false,
+          ssl: false,
           domainLogs: false,
           containerLogs: false,
           addFwRule: false,
@@ -1091,15 +1315,62 @@
         const changeUserPwdInput = ref('');
         const bindDomainForm = ref({ tenant_id: 1, domain: '', external_port: 80, target_container_port: 8080, enable_ssl: false });
         const bindingDomain = ref(false);
+        const editDomainForm = ref({ domain: '', external_port: 80, target_container_port: 8080, enable_ssl: false });
+        const savingEditDomain = ref(false);
+        const sslDomainTarget = ref('');
+        const customSSLForm = ref({ cert: '', key: '' });
+        const renewingSSL = ref(false);
+        const uploadingCustomSSL = ref(false);
         const activeDomainLogs = ref({ domain: '', type: 'access', lines: [] });
         const activeContainerLogs = ref({ name: '', tenant: '', id: '', content: '' });
-        const fwRuleForm = ref({ port: '', protocol: 'tcp', action: 'allow', comment: '' });
+        const fwSourceType = ref('everywhere');
+        const fwRuleForm = ref({ port: '', protocol: 'tcp', action: 'allow', from: '', comment: '' });
         const banIPForm = ref({ jail: 'sshd', ip: '' });
         const loadingContainers = ref(false);
 
         const ramUsagePercent = computed(() => metrics.value.memory_total_mb ? Math.round((metrics.value.memory_used_mb / metrics.value.memory_total_mb) * 100) : 0);
         const swapUsagePercent = computed(() => metrics.value.swap_total_mb ? Math.round((metrics.value.swap_used_mb / metrics.value.swap_total_mb) * 100) : 0);
         const diskUsagePercent = computed(() => metrics.value.disk_total_gb ? Math.round((metrics.value.disk_used_gb / metrics.value.disk_total_gb) * 100) : 0);
+
+        // URL Query Routing
+        const syncFromUrl = () => {
+          const params = new URLSearchParams(window.location.search);
+          const tab = params.get('tab');
+          if (tab && ['dashboard', 'users', 'docker', 'domains', 'security', 'settings'].includes(tab)) {
+            activeTab.value = tab;
+          }
+          const sub = params.get('sub');
+          if (sub && ['firewall', 'fail2ban'].includes(sub)) {
+            secSubTab.value = sub;
+          }
+        };
+
+        const syncToUrl = () => {
+          const params = new URLSearchParams(window.location.search);
+          params.set('tab', activeTab.value);
+          if (activeTab.value === 'security') {
+            params.set('sub', secSubTab.value);
+          } else {
+            params.delete('sub');
+          }
+          const newUrl = window.location.pathname + '?' + params.toString();
+          if (window.location.search !== '?' + params.toString()) {
+            window.history.pushState({ tab: activeTab.value, sub: secSubTab.value }, '', newUrl);
+          }
+        };
+
+        watch(activeTab, (newTab) => {
+          syncToUrl();
+          if (newTab === 'docker') refreshContainers();
+          if (newTab === 'security') refreshSecurity();
+          if (newTab === 'settings') refreshData();
+          if (newTab === 'domains') refreshData();
+        });
+
+        watch(secSubTab, (newSub) => {
+          syncToUrl();
+          if (newSub === 'fail2ban') loadFail2banConfig();
+        });
 
         const checkSetup = async () => {
           try {
@@ -1195,11 +1466,24 @@
             if (f2bRes.ok) fail2banStatus.value = await f2bRes.json();
             if (setRes.ok) {
               const s = await setRes.json();
-              settingsForm.value = s.config || {};
+              const cfg = s.config || {};
+              const def = defaultSettings();
+              settingsForm.value = {
+                server: { ...def.server, ...(cfg.server || cfg.Server || {}) },
+                storage: { ...def.storage, ...(cfg.storage || cfg.Storage || {}) },
+                ports: { ...def.ports, ...(cfg.ports || cfg.Ports || {}) },
+                proxy: { ...def.proxy, ...(cfg.proxy || cfg.Proxy || {}) },
+                docker: { ...def.docker, ...(cfg.docker || cfg.Docker || {}) },
+                telegram: { ...def.telegram, ...(cfg.telegram || cfg.Telegram || {}) }
+              };
               currentSSHPort.value = s.ssh_port || 22;
               newSSHPort.value = s.ssh_port || 22;
+              panelDomainForm.value.domain = settingsForm.value.server.panel_domain || '';
+              panelDomainForm.value.ssl = !!settingsForm.value.server.panel_ssl;
+              adminProfileForm.value.username = currentUser.value || 'admin';
             }
             if (verRes.ok) versionInfo.value = await verRes.json();
+            if (secSubTab.value === 'fail2ban') await loadFail2banConfig();
           } catch (e) {
             console.error('Refresh error:', e);
           }
@@ -1410,20 +1694,94 @@
           }
         };
 
-        const openSSLModal = async (d) => {
-          if (confirm(`Trigger immediate Let's Encrypt SSL renewal for '${d.domain}'?`)) {
-            try {
-              const res = await fetch(`/api/admin/domains/${d.domain}/ssl/renew`, { method: 'POST', headers: authHeaders() });
-              const data = await res.json();
-              if (res.ok) {
-                alert('SSL renewed successfully!');
-                await refreshData();
-              } else {
-                alert('Renewal failed: ' + data.error);
-              }
-            } catch (e) {
-              alert('SSL renewal error: ' + e.message);
+        const openEditDomainModal = (d) => {
+          editDomainForm.value = {
+            domain: d.domain,
+            external_port: d.external_port || 80,
+            target_container_port: d.target_container_port || 8080,
+            enable_ssl: !!d.enable_ssl
+          };
+          modals.value.editDomain = true;
+        };
+
+        const submitEditDomain = async () => {
+          savingEditDomain.value = true;
+          try {
+            const res = await fetch(`/api/admin/domains/${editDomainForm.value.domain}`, {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify({
+                external_port: editDomainForm.value.external_port,
+                target_container_port: editDomainForm.value.target_container_port,
+                enable_ssl: editDomainForm.value.enable_ssl
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              modals.value.editDomain = false;
+              alert('Domain updated successfully!');
+              await refreshData();
+            } else {
+              alert('Update domain error: ' + (data.error || 'Failed'));
             }
+          } catch (e) {
+            alert('Update domain error: ' + e.message);
+          } finally {
+            savingEditDomain.value = false;
+          }
+        };
+
+        const openSSLModal = (d) => {
+          sslDomainTarget.value = d.domain;
+          customSSLForm.value = { cert: '', key: '' };
+          modals.value.ssl = true;
+        };
+
+        const triggerSSLRenew = async (domain) => {
+          renewingSSL.value = true;
+          try {
+            const res = await fetch(`/api/admin/domains/${domain}/ssl/renew`, {
+              method: 'POST',
+              headers: authHeaders()
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert("Let's Encrypt certificate obtained/renewed successfully!");
+              modals.value.ssl = false;
+              await refreshData();
+            } else {
+              alert('SSL renewal error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('SSL renewal error: ' + e.message);
+          } finally {
+            renewingSSL.value = false;
+          }
+        };
+
+        const submitCustomSSL = async () => {
+          uploadingCustomSSL.value = true;
+          try {
+            const res = await fetch(`/api/admin/domains/${sslDomainTarget.value}/ssl/custom`, {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify({
+                cert_content: customSSLForm.value.cert,
+                key_content: customSSLForm.value.key
+              })
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert('Custom SSL certificate installed successfully!');
+              modals.value.ssl = false;
+              await refreshData();
+            } else {
+              alert('Install custom SSL error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Custom SSL error: ' + e.message);
+          } finally {
+            uploadingCustomSSL.value = false;
           }
         };
 
@@ -1446,6 +1804,59 @@
         };
 
         // Security actions
+        const refreshSecurity = async () => {
+          try {
+            const [fwRes, f2bRes] = await Promise.all([
+              fetch('/api/admin/security/firewall/status', { headers: authHeaders() }),
+              fetch('/api/admin/security/fail2ban/status', { headers: authHeaders() })
+            ]);
+            if (fwRes.ok) firewallStatus.value = await fwRes.json();
+            if (f2bRes.ok) fail2banStatus.value = await f2bRes.json();
+            if (secSubTab.value === 'fail2ban') await loadFail2banConfig();
+          } catch (e) {
+            console.error('Security refresh error:', e);
+          }
+        };
+
+        const loadFail2banConfig = async () => {
+          try {
+            const res = await fetch('/api/admin/security/fail2ban/config', { headers: authHeaders() });
+            if (res.ok) {
+              const data = await res.json();
+              fail2banConfig.value = {
+                bantime: data.bantime || '1h',
+                findtime: data.findtime || '10m',
+                maxretry: data.maxretry || 5,
+                ignoreip: data.ignoreip || '127.0.0.1/8 ::1'
+              };
+            }
+          } catch (e) {
+            console.error('Fail2ban config load error:', e);
+          }
+        };
+
+        const saveFail2banConfig = async () => {
+          savingF2BConfig.value = true;
+          try {
+            const res = await fetch('/api/admin/security/fail2ban/config', {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify(fail2banConfig.value)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert('Fail2ban configuration saved and service reloaded!');
+            } else {
+              alert('Save Fail2ban error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Fail2ban config error: ' + e.message);
+          } finally {
+            savingF2BConfig.value = false;
+          }
+        };
+
+        // Security actions
         const toggleFirewall = async (enable) => {
           try {
             await fetch('/api/admin/security/firewall/toggle', {
@@ -1460,26 +1871,33 @@
         };
 
         const openAddRuleModal = () => {
-          fwRuleForm.value = { port: '', protocol: 'tcp', action: 'allow', comment: '' };
+          fwSourceType.value = 'everywhere';
+          fwRuleForm.value = { port: '', protocol: 'tcp', action: 'allow', from: '', comment: '' };
           modals.value.addFwRule = true;
         };
 
         const submitAddFwRule = async () => {
           try {
+            const payload = { ...fwRuleForm.value };
+            if (fwSourceType.value === 'everywhere') {
+              payload.from = '';
+            }
             const res = await fetch('/api/admin/security/firewall/rules', {
               method: 'POST',
               headers: authHeaders(),
-              body: JSON.stringify(fwRuleForm.value)
+              body: JSON.stringify(payload)
             });
+            const data = await res.json();
             if (res.ok) {
               modals.value.addFwRule = false;
-              await refreshData();
+              await refreshSecurity();
+            } else {
+              alert('Failed to add firewall rule: ' + (data.error || 'Failed'));
             }
           } catch (e) {
             alert('Failed to add firewall rule: ' + e.message);
           }
         };
-
         const deleteFirewallRule = async (ruleNum) => {
           if (!confirm(`Delete firewall rule #${ruleNum}?`)) return;
           try {
@@ -1535,6 +1953,71 @@
             if (res.ok) alert('Settings saved successfully!');
           } catch (e) {
             alert('Save failed: ' + e.message);
+          }
+        };
+
+
+        const bindPanelDomain = async () => {
+          bindingPanelDomain.value = true;
+          try {
+            const res = await fetch('/api/admin/settings/panel-domain', {
+              method: 'POST',
+              headers: authHeaders(),
+              body: JSON.stringify(panelDomainForm.value)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert(`Panel domain bound successfully! Access via http${panelDomainForm.value.ssl ? 's' : ''}://${panelDomainForm.value.domain}`);
+              await refreshData();
+            } else {
+              alert('Bind panel domain error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Bind panel domain error: ' + e.message);
+          } finally {
+            bindingPanelDomain.value = false;
+          }
+        };
+
+        const removePanelDomain = async () => {
+          if (!confirm('Remove custom domain binding from Bee Panel? You will need to access via IP:port.')) return;
+          try {
+            const res = await fetch('/api/admin/settings/panel-domain', {
+              method: 'DELETE',
+              headers: authHeaders()
+            });
+            const data = await res.json();
+            if (res.ok) {
+              alert('Panel domain binding removed.');
+              await refreshData();
+            } else {
+              alert('Remove domain error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Remove error: ' + e.message);
+          }
+        };
+
+        const updateAdminProfile = async () => {
+          savingAdminProfile.value = true;
+          try {
+            const res = await fetch('/api/admin/settings/admin/profile', {
+              method: 'PUT',
+              headers: authHeaders(),
+              body: JSON.stringify(adminProfileForm.value)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              currentUser.value = adminProfileForm.value.username;
+              localStorage.setItem('bee_user', adminProfileForm.value.username);
+              alert('Admin profile updated successfully!');
+            } else {
+              alert('Profile update error: ' + (data.error || 'Failed'));
+            }
+          } catch (e) {
+            alert('Profile update error: ' + e.message);
+          } finally {
+            savingAdminProfile.value = false;
           }
         };
 
@@ -1666,6 +2149,10 @@
         };
 
         onMounted(() => {
+          syncFromUrl();
+          window.addEventListener('popstate', () => {
+            syncFromUrl();
+          });
           checkSetup();
           setInterval(() => {
             if (token.value && activeTab.value === 'dashboard') {
@@ -1673,21 +2160,22 @@
             }
           }, 4000);
         });
-
         return {
           loading, isSetup, token, currentUser, errorMsg, modalError, submitting, activeTab, secSubTab,
-          setupForm, loginForm, metrics, tenants, containers, domains, firewallStatus, fail2banStatus,
+          setupForm, loginForm, metrics, tenants, containers, domains, firewallStatus, fail2banStatus, fail2banConfig, savingF2BConfig,
           settingsForm, versionInfo, latestRelease, updateAvailable, checkingUpdate, updatingNow,
           currentSSHPort, newSSHPort, changingSSH, newAdminPassword, testingTg,
+          adminProfileForm, savingAdminProfile, panelDomainForm, bindingPanelDomain,
+          editDomainForm, savingEditDomain, sslDomainTarget, customSSLForm, renewingSSL, uploadingCustomSSL,
           ramUsagePercent, swapUsagePercent, diskUsagePercent,
           modals, activeUser, createUserForm, creatingUser, changeUserPwdInput, bindDomainForm, bindingDomain,
-          activeDomainLogs, activeContainerLogs, fwRuleForm, banIPForm, loadingContainers,
-          handleRegister, handleLogin, logout, refreshContainers,
+          activeDomainLogs, activeContainerLogs, fwSourceType, fwRuleForm, banIPForm, loadingContainers,
+          handleRegister, handleLogin, logout, refreshContainers, refreshSecurity, loadFail2banConfig, saveFail2banConfig,
           openCreateUserModal, handleCreateUser, viewUserCredentials, submitChangeUserPwd, rotateUserSSHKey, toggleUserStatus, restartUserDocker, confirmDeleteUser,
           startContainer, stopContainer, restartContainer, viewContainerLogs,
-          openBindDomainModal, handleBindDomain, deleteDomain, openSSLModal, viewDomainLogs, fetchDomainLogs,
+          openBindDomainModal, handleBindDomain, deleteDomain, openEditDomainModal, submitEditDomain, openSSLModal, triggerSSLRenew, submitCustomSSL, viewDomainLogs, fetchDomainLogs,
           toggleFirewall, openAddRuleModal, submitAddFwRule, deleteFirewallRule, openBanIPModal, submitBanIP, unbanIP,
-          savePanelSettings, sendTelegramTest, changeSSHPort, updateAdminPassword, checkForUpdate, performUpdate,
+          savePanelSettings, bindPanelDomain, removePanelDomain, updateAdminProfile, sendTelegramTest, changeSSHPort, updateAdminPassword, checkForUpdate, performUpdate,
           copyText, downloadFile, formatDate, formatUptime
         };
       }

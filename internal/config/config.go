@@ -9,44 +9,46 @@ import (
 )
 
 type Config struct {
-	LoadedFrom string `yaml:"-"`
+	LoadedFrom string `yaml:"-" json:"loaded_from"`
 
 	Server struct {
-		AdminPort      int    `yaml:"admin_port"`
-		UserPort       int    `yaml:"user_port"`
-		Host           string `yaml:"host"`
-		JWTSecret      string `yaml:"jwt_secret"`
-		JWTExpiryHours int    `yaml:"jwt_expiry_hours"`
-	} `yaml:"server"`
+		AdminPort      int    `yaml:"admin_port" json:"admin_port"`
+		UserPort       int    `yaml:"user_port" json:"user_port"`
+		Host           string `yaml:"host" json:"host"`
+		JWTSecret      string `yaml:"jwt_secret" json:"jwt_secret"`
+		JWTExpiryHours int    `yaml:"jwt_expiry_hours" json:"jwt_expiry_hours"`
+		PanelDomain    string `yaml:"panel_domain" json:"panel_domain"`
+		PanelSSL       bool   `yaml:"panel_ssl" json:"panel_ssl"`
+	} `yaml:"server" json:"server"`
 
 	Storage struct {
-		DBPath string `yaml:"db_path"`
-	} `yaml:"storage"`
+		DBPath string `yaml:"db_path" json:"db_path"`
+	} `yaml:"storage" json:"storage"`
 
 	Ports struct {
-		MinPort int `yaml:"min_port"`
-		MaxPort int `yaml:"max_port"`
-	} `yaml:"ports"`
+		MinPort int `yaml:"min_port" json:"min_port"`
+		MaxPort int `yaml:"max_port" json:"max_port"`
+	} `yaml:"ports" json:"ports"`
 
 	Proxy struct {
-		NginxConfDir    string `yaml:"nginx_conf_dir"`
-		NginxEnabledDir string `yaml:"nginx_enabled_dir"`
-		AcmeWebroot     string `yaml:"acme_webroot"`
-	} `yaml:"proxy"`
+		NginxConfDir    string `yaml:"nginx_conf_dir" json:"nginx_conf_dir"`
+		NginxEnabledDir string `yaml:"nginx_enabled_dir" json:"nginx_enabled_dir"`
+		AcmeWebroot     string `yaml:"acme_webroot" json:"acme_webroot"`
+	} `yaml:"proxy" json:"proxy"`
 
 	Docker struct {
-		NetworkDriver string `yaml:"network_driver"`
-	} `yaml:"docker"`
+		NetworkDriver string `yaml:"network_driver" json:"network_driver"`
+	} `yaml:"docker" json:"docker"`
 
 	Telegram struct {
-		Enabled               bool   `yaml:"enabled"`
-		BotToken              string `yaml:"bot_token"`
-		ChatID                string `yaml:"chat_id"`
-		NotifyOnLogin         bool   `yaml:"notify_on_login"`
-		NotifyOnTenantCreated bool   `yaml:"notify_on_tenant_created"`
-		NotifyOnSSL           bool   `yaml:"notify_on_ssl"`
-		NotifyOnSecurity      bool   `yaml:"notify_on_security"`
-	} `yaml:"telegram"`
+		Enabled               bool   `yaml:"enabled" json:"enabled"`
+		BotToken              string `yaml:"bot_token" json:"bot_token"`
+		ChatID                string `yaml:"chat_id" json:"chat_id"`
+		NotifyOnLogin         bool   `yaml:"notify_on_login" json:"notify_on_login"`
+		NotifyOnTenantCreated bool   `yaml:"notify_on_tenant_created" json:"notify_on_tenant_created"`
+		NotifyOnSSL           bool   `yaml:"notify_on_ssl" json:"notify_on_ssl"`
+		NotifyOnSecurity      bool   `yaml:"notify_on_security" json:"notify_on_security"`
+	} `yaml:"telegram" json:"telegram"`
 }
 
 func DefaultConfig() *Config {

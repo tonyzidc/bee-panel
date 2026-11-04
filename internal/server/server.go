@@ -139,15 +139,19 @@ func (s *DualServer) Start(ctx context.Context) error {
 			pr.Post("/admin/security/firewall/rules", adminH.AddFirewallRule)
 			pr.Delete("/admin/security/firewall/rules/{number}", adminH.DeleteFirewallRule)
 			pr.Get("/admin/security/fail2ban/status", adminH.GetFail2banStatus)
+			pr.Get("/admin/security/fail2ban/config", adminH.GetFail2banConfig)
+			pr.Put("/admin/security/fail2ban/config", adminH.UpdateFail2banConfig)
 			pr.Post("/admin/security/fail2ban/ban", adminH.BanFail2banIP)
 			pr.Post("/admin/security/fail2ban/unban", adminH.UnbanFail2banIP)
 
-			// Settings, Telegram & SSH
+			// Settings, Telegram, SSH & Panel Domain
 			pr.Get("/admin/settings", adminH.GetSettings)
 			pr.Put("/admin/settings", adminH.UpdateSettings)
 			pr.Post("/admin/settings/telegram/test", adminH.SendTelegramTest)
 			pr.Get("/admin/settings/ssh/port", adminH.GetSSHPort)
 			pr.Put("/admin/settings/ssh/port", adminH.ChangeSSHPort)
+			pr.Post("/admin/settings/panel-domain", adminH.SetPanelDomain)
+			pr.Delete("/admin/settings/panel-domain", adminH.RemovePanelDomain)
 			pr.Put("/admin/settings/admin/profile", adminH.UpdateAdminProfile)
 			pr.Put("/admin/settings/admin/password", adminH.UpdateAdminPassword)
 		})

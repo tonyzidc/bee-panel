@@ -96,25 +96,34 @@ func (m *FirewallManager) AddRule(port string, proto string, action string, from
 	port = strings.TrimSpace(port)
 	action = strings.ToLower(strings.TrimSpace(action))
 	proto = strings.ToLower(strings.TrimSpace(proto))
+	from = strings.TrimSpace(from)
+
+	actStr := "allow"
+	if action == "deny" {
+		actStr = "deny"
+	}
 
 	var args []string
-	if action == "deny" {
-		args = append(args, "deny")
-	} else {
-		args = append(args, "allow")
-	}
+	args = append(args, actStr)
 
-	if from != "" && from != "Anywhere" && from != "any" {
-		args = append(args, "from", from, "to", "any")
-	}
+	isSpecificFrom := from != "" && !strings.EqualFold(from, "anywhere") && !strings.EqualFold(from, "any")
 
-	ruleSpec := port
-	if proto == "tcp" || proto == "udp" {
-		if !strings.Contains(port, "/") {
-			ruleSpec = fmt.Sprintf("%s/%s", port, proto)
+	if isSpecificFrom {
+		// Syntax: ufw allow from <IP/CIDR> to any port <PORT> [proto <PROTO>]
+		args = append(args, "from", from, "to", "any", "port", port)
+		if proto == "tcp" || proto == "udp" {
+			args = append(args, "proto", proto)
 		}
+	} else {
+		// Syntax: ufw allow <PORT>[/<PROTO>]
+		ruleSpec := port
+		if proto == "tcp" || proto == "udp" {
+			if !strings.Contains(port, "/") {
+				ruleSpec = fmt.Sprintf("%s/%s", port, proto)
+			}
+		}
+		args = append(args, ruleSpec)
 	}
-	args = append(args, "port", ruleSpec)
 
 	if comment != "" {
 		args = append(args, "comment", comment)

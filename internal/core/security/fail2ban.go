@@ -3,7 +3,10 @@ package security
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -13,10 +16,17 @@ type BannedIPInfo struct {
 }
 
 type Fail2banStatus struct {
-	Active     bool           `json:"active"`
-	Jails      []string       `json:"jails"`
-	TotalBanned int           `json:"total_banned"`
-	BannedList []BannedIPInfo `json:"banned_list"`
+	Active      bool           `json:"active"`
+	Jails       []string       `json:"jails"`
+	TotalBanned int            `json:"total_banned"`
+	BannedList  []BannedIPInfo `json:"banned_list"`
+}
+
+type Fail2banConfig struct {
+	Bantime  string `json:"bantime"`
+	Findtime string `json:"findtime"`
+	MaxRetry int    `json:"maxretry"`
+	IgnoreIP string `json:"ignoreip"`
 }
 
 type Fail2banManager struct{}
@@ -139,5 +149,98 @@ func (m *Fail2banManager) Restart() error {
 	if err != nil {
 		return fmt.Errorf("fail2ban restart: %s (%w)", string(out), err)
 	}
+	return nil
+}
+
+// GetConfig returns the Fail2ban configuration
+func (m *Fail2banManager) GetConfig() (*Fail2banConfig, error) {
+	cfg := &Fail2banConfig{
+		Bantime:  "1h",
+		Findtime: "10m",
+		MaxRetry: 5,
+		IgnoreIP: "127.0.0.1/8 ::1",
+	}
+
+	path := "/etc/fail2ban/jail.local"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		path = "/etc/fail2ban/jail.conf"
+		data, err = os.ReadFile(path)
+	}
+
+	if err == nil {
+		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				k := strings.ToLower(strings.TrimSpace(parts[0]))
+				v := strings.TrimSpace(parts[1])
+				switch k {
+				case "bantime":
+					cfg.Bantime = v
+				case "findtime":
+					cfg.Findtime = v
+				case "maxretry":
+					if n, err := strconv.Atoi(v); err == nil && n > 0 {
+						cfg.MaxRetry = n
+					}
+				case "ignoreip":
+					cfg.IgnoreIP = v
+				}
+			}
+		}
+	}
+
+	return cfg, nil
+}
+
+// UpdateConfig writes Fail2ban configuration to /etc/fail2ban/jail.local and reloads
+func (m *Fail2banManager) UpdateConfig(cfg *Fail2banConfig) error {
+	if cfg.Bantime == "" {
+		cfg.Bantime = "1h"
+	}
+	if cfg.Findtime == "" {
+		cfg.Findtime = "10m"
+	}
+	if cfg.MaxRetry <= 0 {
+		cfg.MaxRetry = 5
+	}
+	if cfg.IgnoreIP == "" {
+		cfg.IgnoreIP = "127.0.0.1/8 ::1"
+	}
+
+	content := fmt.Sprintf(`[DEFAULT]
+bantime = %s
+findtime = %s
+maxretry = %d
+ignoreip = %s
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = %d
+`, cfg.Bantime, cfg.Findtime, cfg.MaxRetry, cfg.IgnoreIP, cfg.MaxRetry)
+
+	path := "/etc/fail2ban/jail.local"
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create fail2ban dir: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write jail.local: %w", err)
+	}
+
+	// Try fail2ban-client reload first, fallback to systemctl restart fail2ban
+	if out, err := exec.Command("fail2ban-client", "reload").CombinedOutput(); err != nil {
+		_ = exec.Command("systemctl", "restart", "fail2ban").Run()
+		_ = out
+	}
+
 	return nil
 }

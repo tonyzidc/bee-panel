@@ -879,7 +879,97 @@ func (h *AdminHandler) UnbanFail2banIP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": "ip unbanned successfully"})
 }
 
-// --- Settings, Telegram & SSH ---
+func (h *AdminHandler) GetFail2banConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.f2bMgr.GetConfig()
+	if err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cfg)
+}
+
+func (h *AdminHandler) UpdateFail2banConfig(w http.ResponseWriter, r *http.Request) {
+	var req security.Fail2banConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"invalid fail2ban config json"}`, http.StatusBadRequest)
+		return
+	}
+	if err := h.f2bMgr.UpdateConfig(&req); err != nil {
+		http.Error(w, `{"error":"failed to update fail2ban config: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "fail2ban configuration updated and service reloaded"})
+}
+
+// --- Settings, Telegram, SSH & Panel Domain ---
+
+func (h *AdminHandler) SetPanelDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain string `json:"domain"`
+		SSL    bool   `json:"ssl"`
+		Email  string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Domain) == "" {
+		http.Error(w, `{"error":"domain is required"}`, http.StatusBadRequest)
+		return
+	}
+	domain := strings.TrimSpace(req.Domain)
+
+	// Obtain SSL if requested
+	sslCertPath := ""
+	sslKeyPath := ""
+	if req.SSL {
+		// First apply plain HTTP vhost so ACME challenge directory works
+		if err := h.nginxMgr.ApplyPanelVHost(domain, h.cfg.Server.AdminPort, false, "", ""); err != nil {
+			http.Error(w, `{"error":"failed to prepare http panel vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+
+		// Try obtaining certificate via Let's Encrypt
+		_, err := h.sslMgr.ObtainCertificate(domain)
+		if err != nil {
+			http.Error(w, `{"error":"failed to obtain SSL certificate for `+domain+`: `+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+		sslCertPath = fmt.Sprintf("/etc/letsencrypt/live/%s/fullchain.pem", domain)
+		sslKeyPath = fmt.Sprintf("/etc/letsencrypt/live/%s/privkey.pem", domain)
+	}
+
+	// Apply final vhost
+	if err := h.nginxMgr.ApplyPanelVHost(domain, h.cfg.Server.AdminPort, req.SSL, sslCertPath, sslKeyPath); err != nil {
+		http.Error(w, `{"error":"failed to apply panel vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.cfg.Server.PanelDomain = domain
+	h.cfg.Server.PanelSSL = req.SSL
+	_ = config.SaveConfig("", h.cfg)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":      "Panel domain bound successfully",
+		"panel_domain": domain,
+		"panel_ssl":    req.SSL,
+	})
+}
+
+func (h *AdminHandler) RemovePanelDomain(w http.ResponseWriter, r *http.Request) {
+	if err := h.nginxMgr.RemovePanelVHost(); err != nil {
+		http.Error(w, `{"error":"failed to remove panel domain vhost: `+err.Error()+`"}`, http.StatusInternalServerError)
+		return
+	}
+
+	h.cfg.Server.PanelDomain = ""
+	h.cfg.Server.PanelSSL = false
+	_ = config.SaveConfig("", h.cfg)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"message": "Panel domain binding removed successfully",
+	})
+}
 
 func (h *AdminHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	sshPort := h.sshMgr.GetCurrentSSHPort()

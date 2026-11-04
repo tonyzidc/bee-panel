@@ -193,3 +193,131 @@ func (nm *NginxManager) SaveCustomSSL(domain, certContent, keyContent string) (s
 
 	return certPath, keyPath, nil
 }
+
+// ApplyPanelVHost configures Nginx to reverse proxy the panel domain to the AdminPort (127.0.0.1:<adminPort>)
+func (nm *NginxManager) ApplyPanelVHost(domain string, adminPort int, enableSSL bool, sslCertPath, sslKeyPath string) error {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return fmt.Errorf("domain cannot be empty")
+	}
+	if adminPort <= 0 {
+		adminPort = 8443
+	}
+
+	confFile := "bee-panel.conf"
+	availPath := filepath.Join(nm.availableDir, confFile)
+	enablePath := filepath.Join(nm.enabledDir, confFile)
+
+	var conf strings.Builder
+	if enableSSL && sslCertPath != "" && sslKeyPath != "" {
+		conf.WriteString(fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+
+    location /.well-known/acme-challenge/ {
+        root %s;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    server_name %s;
+
+    ssl_certificate %s;
+    ssl_certificate_key %s;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://127.0.0.1:%d;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+`, domain, nm.acmeWebroot, domain, sslCertPath, sslKeyPath, adminPort))
+	} else {
+		conf.WriteString(fmt.Sprintf(`server {
+    listen 80;
+    server_name %s;
+
+    location /.well-known/acme-challenge/ {
+        root %s;
+        try_files $uri =404;
+    }
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass http://127.0.0.1:%d;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+`, domain, nm.acmeWebroot, adminPort))
+	}
+
+	_ = os.MkdirAll(nm.availableDir, 0755)
+	_ = os.MkdirAll(nm.enabledDir, 0755)
+
+	oldContent, _ := os.ReadFile(availPath)
+
+	if err := os.WriteFile(availPath, []byte(conf.String()), 0644); err != nil {
+		return fmt.Errorf("write panel vhost: %w", err)
+	}
+
+	_ = os.Remove(enablePath)
+	if err := os.Symlink(availPath, enablePath); err != nil {
+		return fmt.Errorf("symlink panel vhost: %w", err)
+	}
+
+	// Test syntax
+	testCmd := exec.Command("nginx", "-t")
+	if out, err := testCmd.CombinedOutput(); err != nil {
+		_ = os.Remove(enablePath)
+		if len(oldContent) > 0 {
+			_ = os.WriteFile(availPath, oldContent, 0644)
+			_ = os.Symlink(availPath, enablePath)
+		} else {
+			_ = os.Remove(availPath)
+		}
+		return fmt.Errorf("nginx -t failed: %s (%w)", string(out), err)
+	}
+
+	// Reload
+	if out, err := exec.Command("nginx", "-s", "reload").CombinedOutput(); err != nil {
+		return fmt.Errorf("nginx reload failed: %s (%w)", string(out), err)
+	}
+
+	return nil
+}
+
+// RemovePanelVHost removes the panel vhost and reloads Nginx
+func (nm *NginxManager) RemovePanelVHost() error {
+	confFile := "bee-panel.conf"
+	availPath := filepath.Join(nm.availableDir, confFile)
+	enablePath := filepath.Join(nm.enabledDir, confFile)
+
+	_ = os.Remove(enablePath)
+	_ = os.Remove(availPath)
+
+	_ = exec.Command("nginx", "-t").Run()
+	_ = exec.Command("nginx", "-s", "reload").Run()
+	return nil
+}

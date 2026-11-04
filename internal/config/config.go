@@ -54,7 +54,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	cfg := &Config{}
 	cfg.Server.AdminPort = 8443
-	cfg.Server.UserPort = 3000
+	cfg.Server.UserPort = 8443
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Server.JWTSecret = "bee-panel-default-secret-key-32-chars-long"
 	cfg.Server.JWTExpiryHours = 72

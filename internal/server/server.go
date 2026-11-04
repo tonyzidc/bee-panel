@@ -26,18 +26,19 @@ import (
 	"bee-panel/internal/storage"
 )
 
-type DualServer struct {
-	cfg         *config.Config
-	db          *storage.DB
-	prov        *provisioner.Provisioner
-	nginxMgr    *proxy.NginxManager
-	sslMgr      *proxy.SSLManager
-	adminFS     fs.FS
-	userFS      fs.FS
-	logger      *slog.Logger
-	adminServer *http.Server
-	userServer  *http.Server
+type Server struct {
+	cfg        *config.Config
+	db         *storage.DB
+	prov       *provisioner.Provisioner
+	nginxMgr   *proxy.NginxManager
+	sslMgr     *proxy.SSLManager
+	adminFS    fs.FS
+	userFS     fs.FS
+	logger     *slog.Logger
+	httpServer *http.Server
 }
+
+type DualServer = Server
 
 func NewDualServer(
 	cfg *config.Config,
@@ -48,11 +49,11 @@ func NewDualServer(
 	adminFS fs.FS,
 	userFS fs.FS,
 	logger *slog.Logger,
-) *DualServer {
+) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &DualServer{
+	return &Server{
 		cfg:      cfg,
 		db:       db,
 		prov:     prov,
@@ -64,17 +65,17 @@ func NewDualServer(
 	}
 }
 
-func (s *DualServer) Start(ctx context.Context) error {
+func (s *Server) Start(ctx context.Context) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// 1. Setup Admin Router (Port 8443)
-	adminRouter := chi.NewRouter()
-	adminRouter.Use(middleware.RequestID)
-	adminRouter.Use(middleware.RealIP)
-	adminRouter.Use(middleware.Logger)
-	adminRouter.Use(middleware.Recoverer)
-	adminRouter.Use(cors.Handler(cors.Options{
+	// Unified Router on single port
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
@@ -84,21 +85,29 @@ func (s *DualServer) Start(ctx context.Context) error {
 
 	setupH := api.NewSetupHandler(s.db, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
 	adminH := api.NewAdminHandler(s.cfg, s.db, s.prov, s.nginxMgr, s.sslMgr, s.cfg.Server.JWTSecret, s.cfg.Server.JWTExpiryHours)
+	userH := api.NewUserHandler(s.db, s.nginxMgr, s.sslMgr)
 
-	adminRouter.Route("/api", func(r chi.Router) {
-		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+	r.Route("/api", func(apiR chi.Router) {
+		apiR.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`{"status":"ok","panel":"bee-panel"}`))
 		})
 
-		r.Route("/setup", func(sr chi.Router) {
+		apiR.Route("/setup", func(sr chi.Router) {
 			sr.Get("/status", setupH.GetStatus)
 			sr.Post("/register", setupH.RegisterInitialAdmin)
 		})
 
-		r.Post("/admin/login", adminH.Login)
+		apiR.Post("/admin/login", adminH.Login)
+
+		// Developer User Portal APIs
+		apiR.Get("/user/domains", userH.ListDomains)
+		apiR.Post("/user/domains", userH.BindDomain)
+		apiR.Delete("/user/domains/{domain}", userH.DeleteDomain)
+		apiR.Get("/user/domains/{domain}/logs", userH.GetDomainLogs)
+		apiR.Post("/user/domains/{domain}/renew-ssl", userH.RenewSSL)
 
 		// Protected Admin Routes
-		r.Group(func(pr chi.Router) {
+		apiR.Group(func(pr chi.Router) {
 			pr.Use(serverMiddleware.JWTAuthMiddleware(s.cfg.Server.JWTSecret))
 
 			// Metrics & System
@@ -157,70 +166,37 @@ func (s *DualServer) Start(ctx context.Context) error {
 		})
 	})
 
-	if s.adminFS != nil {
-		s.setupSPA(adminRouter, s.adminFS)
-	}
-
-	// 2. Setup User Router (Port 3000)
-	userRouter := chi.NewRouter()
-	userRouter.Use(middleware.RequestID)
-	userRouter.Use(middleware.RealIP)
-	userRouter.Use(middleware.Logger)
-	userRouter.Use(middleware.Recoverer)
-	userRouter.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type"},
-	}))
-
-	userH := api.NewUserHandler(s.db, s.nginxMgr, s.sslMgr)
-
-	userRouter.Route("/api", func(r chi.Router) {
-		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"status":"ok","portal":"user-portal"}`))
-		})
-		r.Get("/user/domains", userH.ListDomains)
-		r.Post("/user/domains", userH.BindDomain)
-		r.Delete("/user/domains/{domain}", userH.DeleteDomain)
-		r.Get("/user/domains/{domain}/logs", userH.GetDomainLogs)
-		r.Post("/user/domains/{domain}/renew-ssl", userH.RenewSSL)
-	})
-
+	// Mount Developer Portal at /portal and /developer
 	if s.userFS != nil {
-		s.setupSPA(userRouter, s.userFS)
+		s.setupSubSPA(r, "/portal", s.userFS)
+		r.Get("/developer", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/portal", http.StatusMovedPermanently)
+		})
+		r.Get("/developer/*", func(w http.ResponseWriter, req *http.Request) {
+			http.Redirect(w, req, "/portal", http.StatusMovedPermanently)
+		})
 	}
 
-	// 3. Dual Listeners
-	s.adminServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.AdminPort),
-		Handler:      adminRouter,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second,
+	// Mount Admin Console SPA at /*
+	if s.adminFS != nil {
+		s.setupSPA(r, s.adminFS)
 	}
 
-	s.userServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.UserPort),
-		Handler:      userRouter,
+	listenAddr := fmt.Sprintf("%s:%d", s.cfg.Server.Host, s.cfg.Server.AdminPort)
+	s.httpServer = &http.Server{
+		Addr:         listenAddr,
+		Handler:      r,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 
-	// Run Admin Server
+	// Run Unified Server
 	g.Go(func() error {
-		s.logger.Info("Starting Admin Console Server", "addr", s.adminServer.Addr)
-		if err := s.adminServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("admin server error: %w", err)
-		}
-		return nil
-	})
-
-	// Run User Server
-	g.Go(func() error {
-		s.logger.Info("Starting Developer User Portal Server", "addr", s.userServer.Addr)
-		if err := s.userServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("user server error: %w", err)
+		s.logger.Info("Starting Bee Panel Unified Server", "addr", s.httpServer.Addr)
+		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("server error: %w", err)
 		}
 		return nil
 	})
@@ -228,32 +204,64 @@ func (s *DualServer) Start(ctx context.Context) error {
 	// Graceful Shutdown Handler
 	g.Go(func() error {
 		<-gCtx.Done()
-		s.logger.Info("Received termination signal. Shutting down servers gracefully...")
+		s.logger.Info("Received termination signal. Shutting down server gracefully...")
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 
-		var sg errgroup.Group
-		sg.Go(func() error { return s.adminServer.Shutdown(shutdownCtx) })
-		sg.Go(func() error { return s.userServer.Shutdown(shutdownCtx) })
-		return sg.Wait()
+		return s.httpServer.Shutdown(shutdownCtx)
 	})
 
 	return g.Wait()
 }
 
-func (s *DualServer) setupSPA(r *chi.Mux, staticFS fs.FS) {
+func (s *Server) setupSubSPA(r *chi.Mux, prefix string, staticFS fs.FS) {
 	fileServer := http.FileServer(http.FS(staticFS))
+	indexData, _ := fs.ReadFile(staticFS, "index.html")
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		subPath := strings.TrimPrefix(req.URL.Path, prefix)
+		subPath = strings.TrimPrefix(subPath, "/")
+		if subPath == "" || subPath == "index.html" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(indexData)
+			return
+		}
+
+		if _, err := fs.Stat(staticFS, subPath); err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(indexData)
+			return
+		}
+
+		req.URL.Path = "/" + subPath
+		fileServer.ServeHTTP(w, req)
+	})
+
+	r.Handle(prefix, handler)
+	r.Handle(prefix+"/*", handler)
+}
+
+func (s *Server) setupSPA(r *chi.Mux, staticFS fs.FS) {
+	fileServer := http.FileServer(http.FS(staticFS))
+	indexData, _ := fs.ReadFile(staticFS, "index.html")
 
 	r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path := strings.TrimPrefix(req.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+		if path == "" || path == "index.html" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(indexData)
+			return
 		}
 
 		if _, err := fs.Stat(staticFS, path); err != nil {
-			// Fallback to index.html for SPA client-side routes
-			req.URL.Path = "/"
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(indexData)
+			return
 		}
 		fileServer.ServeHTTP(w, req)
 	}))

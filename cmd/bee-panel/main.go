@@ -46,10 +46,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Run Control Plane Daemon (Dual HTTP Servers)
+	// Run Control Plane Daemon (Unified Single Port)
 	logger.Info("Starting Bee Panel Control Plane Daemon...",
-		"admin_port", cfg.Server.AdminPort,
-		"user_port", cfg.Server.UserPort,
+		"port", cfg.Server.AdminPort,
 		"db_path", cfg.Storage.DBPath,
 	)
 
@@ -160,8 +159,7 @@ func handleStatusCLI(configPath string) {
 	fmt.Println("==========================================================")
 	fmt.Printf("Service Status:      %s\n", srvState)
 	if cfg != nil {
-		fmt.Printf("Admin Console Port:  :%d\n", cfg.Server.AdminPort)
-		fmt.Printf("Developer Portal:    :%d\n", cfg.Server.UserPort)
+		fmt.Printf("Panel Port:          :%d (Admin Console & Developer Portal /portal)\n", cfg.Server.AdminPort)
 		fmt.Printf("Database Path:       %s\n", cfg.Storage.DBPath)
 	}
 

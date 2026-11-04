@@ -18,11 +18,12 @@ During installation, the script automatically:
 - Applies kernel sysctl tuning (`somaxconn`, `inotify`, `swappiness=10`, `unprivileged_port_start=80`).
 - Configures a 2GB Swapfile to protect against Out-Of-Memory (OOM) crashes on 1GB VPS instances.
 - Installs and enables **UFW Firewall** and **Fail2ban** intrusion defense by default.
-- Sets up baseline firewall rules allowing SSH, HTTP (`80`), HTTPS (`443`), Admin (`8443`), Developer Portal (`3000`), and Container Ports (`10000:60000/tcp`).
+- Sets up baseline firewall rules allowing SSH, HTTP (`80`), HTTPS (`443`), Web Control Plane (`8443`), and Container Ports (`10000:60000/tcp`).
 
 After successful installation, access:
-- 🌐 **Admin Console**: `http://<SERVER_IP>:8443` (Interactive first-time administrator initialization wizard)
-- ⚡ **Developer User Portal**: `http://<SERVER_IP>:3000` (Dedicated developer gateway)
+- 🌐 **Unified Web Port**: `http://<SERVER_IP>:8443`
+  - **Admin Console**: `http://<SERVER_IP>:8443/` (Full system administration & metrics)
+  - **Developer Portal**: `http://<SERVER_IP>:8443/portal` (Tenant connection guide & domain proxying)
 
 ---
 

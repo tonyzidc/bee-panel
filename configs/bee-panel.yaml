@@ -1,6 +1,5 @@
 server:
   admin_port: 8443
-  user_port: 3000
   host: "0.0.0.0"
   jwt_secret: "change-me-in-production-bee-panel-secret-key"
   jwt_expiry_hours: 72

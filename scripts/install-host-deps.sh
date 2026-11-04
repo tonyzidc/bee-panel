@@ -129,8 +129,7 @@ echo "   Allowing SSH port: $CURRENT_SSH_PORT/tcp..."
 ufw allow "$CURRENT_SSH_PORT/tcp" comment 'SSH Access' || true
 ufw allow 80/tcp comment 'HTTP Web' || true
 ufw allow 443/tcp comment 'HTTPS Web' || true
-ufw allow 8443/tcp comment 'Bee Panel Admin Console' || true
-ufw allow 3000/tcp comment 'Bee Panel Developer Portal' || true
+ufw allow 8443/tcp comment 'Bee Panel Web Control Plane' || true
 ufw allow 10000:60000/tcp comment 'Bee Panel Container Port Forward Pool' || true
 echo "y" | ufw enable || true
 

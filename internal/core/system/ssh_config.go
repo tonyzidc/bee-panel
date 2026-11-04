@@ -69,8 +69,8 @@ func (m *SSHConfigManager) ChangeSSHPort(newPort int, fw *security.FirewallManag
 		return fmt.Errorf("invalid port number: %d (must be between 1 and 65535)", newPort)
 	}
 
-	if newPort == 8443 || newPort == 3000 {
-		return fmt.Errorf("port %d is reserved for Bee Panel web services", newPort)
+	if newPort == 8443 {
+		return fmt.Errorf("port %d is reserved for Bee Panel", newPort)
 	}
 
 	oldPort := m.GetCurrentSSHPort()

@@ -54,7 +54,6 @@ if [ ! -f /etc/bee-panel/bee-panel.yaml ]; then
     cat << 'EOF' > /etc/bee-panel/bee-panel.yaml
 server:
   admin_port: 8443
-  user_port: 3000
   host: "0.0.0.0"
   jwt_secret: "bee-panel-default-secret-key-32-chars-long"
   jwt_expiry_hours: 72
@@ -118,11 +117,9 @@ echo "=================================================================="
 echo "🎉 SUCCESS: Bee Panel has been installed and started successfully!"
 echo "=================================================================="
 echo ""
-echo "🌐 1. Admin Console (Access for first-time administrator setup):"
-echo "   👉 http://${HOST_IP}:8443"
-echo ""
-echo "⚡ 2. Developer User Portal (Tenant user gateway):"
-echo "   👉 http://${HOST_IP}:3000"
+echo "🌐 Bee Panel Control Plane (Unified Web Port):"
+echo "   👉 Admin Console:     http://${HOST_IP}:8443"
+echo "   👉 Developer Portal:  http://${HOST_IP}:8443/portal"
 echo ""
 echo "📋 Manage daemon service:"
 echo "   bee-panel status"

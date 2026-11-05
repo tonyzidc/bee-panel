@@ -19,7 +19,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[command(name = "bee-panel")]
 #[command(author = "Bee Panel Team")]
 #[command(version = "2.0.0")]
-#[command(about = "Ultra-lightweight Native Rust Reverse Proxy & Linux OS Host Manager (NPM Alternative)", long_about = None)]
+#[command(about = "Ultra-lightweight Native Rust Reverse Proxy & Linux OS Host Manager", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

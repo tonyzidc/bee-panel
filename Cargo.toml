@@ -3,7 +3,7 @@ name = "bee-panel"
 version = "2.0.0"
 edition = "2021"
 authors = ["Bee Panel Team"]
-description = "Ultra-lightweight Native Rust Reverse Proxy & Linux OS Host Manager (Alternative to Nginx Proxy Manager)"
+description = "Ultra-lightweight Native Rust Reverse Proxy & Linux OS Host Manager"
 license = "MIT"
 
 [dependencies]

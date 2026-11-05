@@ -1,7 +1,7 @@
 # 🐝 Bee Panel v2
 
 > **Ultra-Lightweight Native Rust Reverse Proxy & Linux Host Account Provisioner**  
-> *A high-performance, single-binary, drop-in native alternative to Nginx Proxy Manager (NPM).*  
+> *A high-performance, single-binary, enterprise-grade native reverse proxy and server manager.*  
 > Designed for Linux servers (Ubuntu 22.04/24.04, Debian 12+, RHEL 9+, Alpine) with baseline memory usage as low as **~15MB RAM**.
 
 ---
@@ -28,9 +28,9 @@ After installation, access:
 
 ---
 
-## 📊 Comparison: Bee Panel v2 vs Nginx Proxy Manager (NPM)
+## 📊 Performance & Efficiency Architecture
 
-| Metric / Capability | Nginx Proxy Manager (NPM) | Bee Panel v2 (Rust Native) |
+| Metric / Capability | Traditional Container Stacks | Bee Panel v2 (Rust Native) |
 | :--- | :--- | :--- |
 | **Runtime Architecture** | Docker Container (Node.js + Python + MySQL) | **Single Static Rust Binary** (`axum` + `tokio`) |
 | **Memory Footprint (RAM)**| **~400MB - 800MB RAM** | **~15MB - 25MB RAM** (*20x lighter*) |
@@ -45,7 +45,7 @@ After installation, access:
 
 ## 🚀 Key Features
 
-### 1. Full Reverse Proxy Engine (100% NPM Parity)
+### 1. Full Reverse Proxy Engine
 - **Proxy Hosts**: Route multiple domains to backend endpoints with HTTP/HTTPS upstream, custom ports, and path preserving.
 - **Asset Caching**: Enable Nginx edge caching (`proxy_cache`) with custom cache timeouts.
 - **Exploit Defense**: Built-in blocking of common exploit patterns (SQL injection, XSS, malicious queries, path traversal).

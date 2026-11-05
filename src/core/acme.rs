@@ -1,7 +1,5 @@
 use crate::config::AppConfig;
-use instant_acme::{
-    Account, ChallengeType, Identifier, NewAccount, NewOrder, OrderStatus,
-};
+use instant_acme::{Account, ChallengeType, Identifier, NewAccount, NewOrder, OrderStatus};
 use rcgen::{CertificateParams, DistinguishedName, KeyPair};
 use std::fs;
 use std::path::PathBuf;
@@ -86,10 +84,7 @@ impl AcmeManager {
             fs::create_dir_all(&self.config.acme_challenge_dir)?;
             fs::write(&challenge_path, key_auth.as_str())?;
 
-            tracing::info!(
-                "Wrote ACME HTTP-01 challenge to {:?}",
-                challenge_path
-            );
+            tracing::info!("Wrote ACME HTTP-01 challenge to {:?}", challenge_path);
 
             // Notify ACME provider that challenge is ready
             order
@@ -148,11 +143,16 @@ impl AcmeManager {
             .map_err(|e| anyhow::anyhow!("Failed to finalize ACME order: {}", e))?;
 
         // 7. Download Certificate
+        let mut cert_attempts = 0;
         let cert_chain_pem = loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
             order.refresh().await?;
             if let Some(cert) = order.certificate().await? {
                 break cert;
+            }
+            cert_attempts += 1;
+            if cert_attempts >= 30 {
+                return Err(anyhow::anyhow!("ACME certificate download timed out"));
             }
         };
 
@@ -160,8 +160,15 @@ impl AcmeManager {
         let expires_at = (chrono::Utc::now() + chrono::Duration::days(90)).to_rfc3339();
 
         // Cleanup challenges
-        let _ = fs::remove_dir_all(&self.config.acme_challenge_dir);
-        let _ = fs::create_dir_all(&self.config.acme_challenge_dir);
+        for auth in &authorizations {
+            if let Some(challenge) = auth
+                .challenges
+                .iter()
+                .find(|c| c.r#type == ChallengeType::Http01)
+            {
+                let _ = fs::remove_file(self.config.acme_challenge_dir.join(&challenge.token));
+            }
+        }
 
         Ok(IssuedCertificate {
             cert_pem: cert_chain_pem,

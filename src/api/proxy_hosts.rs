@@ -1,4 +1,5 @@
 use crate::api::auth::{extract_bearer_token, verify_jwt};
+use crate::api::validation;
 use crate::config::AppConfig;
 use crate::core::nginx::NginxEngine;
 use crate::db::models::{CustomLocation, ProxyHost};
@@ -57,7 +58,8 @@ pub async fn list_proxy_hosts(
             "SELECT id, user_id, domain_names, forward_scheme, forward_host, forward_port, 
                     caching_enabled, block_exploits, websocket_support, ssl_certificate_id, 
                     ssl_forced, http2_support, hsts_enabled, hsts_subdomains, access_list_id, 
-                    advanced_config, is_enabled, created_at, updated_at 
+                    advanced_config, is_enabled, created_at, updated_at,
+                    COALESCE((SELECT pass_auth_to_host FROM access_lists WHERE id = proxy_hosts.access_list_id), 0)
              FROM proxy_hosts ORDER BY id DESC",
         )
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -83,6 +85,7 @@ pub async fn list_proxy_hosts(
                 hsts_enabled: row.get(12)?,
                 hsts_subdomains: row.get(13)?,
                 access_list_id: row.get(14)?,
+                pass_auth_to_host: row.get(19)?,
                 advanced_config: row.get(15)?,
                 is_enabled: row.get(16)?,
                 custom_locations: vec![],
@@ -139,13 +142,61 @@ pub async fn create_proxy_host(
     let token = extract_bearer_token(&headers)?;
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
-    if payload.domain_names.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Domain names cannot be empty".to_string()));
+    validation::domains(&payload.domain_names)?;
+    if claims.role != "admin"
+        && (payload
+            .advanced_config
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+            || payload
+                .custom_locations
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .any(|loc| {
+                    loc.advanced_config
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty())
+                }))
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Advanced Nginx directives require an administrator".into(),
+        ));
+    }
+    validation::port(payload.forward_port)?;
+    if !validation::upstream_host(&payload.forward_host) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid forward host".into()));
+    }
+    validation::scheme(payload.forward_scheme.as_deref().unwrap_or("http"))?;
+    for loc in payload.custom_locations.as_deref().unwrap_or(&[]) {
+        if !loc.path.starts_with('/')
+            || loc
+                .path
+                .bytes()
+                .any(|b| b.is_ascii_whitespace() || matches!(b, b'{' | b'}' | b';'))
+            || !validation::upstream_host(&loc.forward_host)
+        {
+            return Err((StatusCode::BAD_REQUEST, "Invalid custom location".into()));
+        }
+        validation::port(loc.forward_port)?;
+        validation::scheme(loc.forward_scheme.as_deref().unwrap_or("http"))?;
     }
 
     let conn = pool
         .get()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let pass_auth_to_host = if let Some(list_id) = payload.access_list_id {
+        conn.query_row(
+            "SELECT pass_auth_to_host FROM access_lists WHERE id = ?1",
+            [list_id],
+            |r| r.get(0),
+        )
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Access list not found".to_string()))?
+    } else {
+        false
+    };
 
     let domains_json = serde_json::to_string(&payload.domain_names)
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
@@ -184,7 +235,12 @@ pub async fn create_proxy_host(
             &payload.advanced_config,
         ],
     )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB insert error: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB insert error: {}", e),
+        )
+    })?;
 
     let host_id = conn.last_insert_rowid();
 
@@ -227,9 +283,11 @@ pub async fn create_proxy_host(
             [cert_id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         );
-        if let Ok((c, k)) = cert_info {
-            ssl_cert_paths = Some((c, k));
-        }
+        let (c, k) = cert_info.map_err(|_| {
+            let _ = conn.execute("DELETE FROM proxy_hosts WHERE id = ?1", [host_id]);
+            (StatusCode::BAD_REQUEST, "Certificate not found".to_string())
+        })?;
+        ssl_cert_paths = Some((c, k));
     }
 
     let host = ProxyHost {
@@ -248,6 +306,7 @@ pub async fn create_proxy_host(
         hsts_enabled,
         hsts_subdomains,
         access_list_id: payload.access_list_id,
+        pass_auth_to_host,
         advanced_config: payload.advanced_config,
         is_enabled: true,
         custom_locations,
@@ -266,7 +325,10 @@ pub async fn create_proxy_host(
     if let Err(e) = engine.deploy_proxy_host(&host, cert_ref) {
         // Rollback DB if Nginx configuration failed
         let _ = conn.execute("DELETE FROM proxy_hosts WHERE id = ?1", [host_id]);
-        return Err((StatusCode::BAD_REQUEST, format!("Nginx configuration failed: {}", e)));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Nginx configuration failed: {}", e),
+        ));
     }
 
     // Audit log
@@ -312,7 +374,9 @@ pub async fn delete_proxy_host(
     // Delete from Nginx
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = engine.delete_proxy_host(host_id);
+    engine
+        .delete_proxy_host(host_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Delete from DB
     conn.execute("DELETE FROM proxy_hosts WHERE id = ?1", [host_id])

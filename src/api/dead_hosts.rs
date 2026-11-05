@@ -1,4 +1,5 @@
 use crate::api::auth::{extract_bearer_token, verify_jwt};
+use crate::api::validation;
 use crate::config::AppConfig;
 use crate::core::nginx::NginxEngine;
 use crate::db::models::DeadHost;
@@ -80,8 +81,16 @@ pub async fn create_dead_host(
     let token = extract_bearer_token(&headers)?;
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
-    if payload.domain_names.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Domain names cannot be empty".to_string()));
+    validation::domains(&payload.domain_names)?;
+    if !matches!(payload.status_code.unwrap_or(404), 404 | 410 | 503) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid response status".into()));
+    }
+    if payload
+        .custom_message
+        .as_deref()
+        .is_some_and(|m| m.len() > 500 || m.contains(['\n', '\r', '"', '\\', '$']))
+    {
+        return Err((StatusCode::BAD_REQUEST, "Invalid response message".into()));
     }
 
     let conn = pool
@@ -105,7 +114,12 @@ pub async fn create_dead_host(
             payload.ssl_certificate_id,
         ],
     )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB insert error: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("DB insert error: {}", e),
+        )
+    })?;
 
     let host_id = conn.last_insert_rowid();
 
@@ -121,12 +135,33 @@ pub async fn create_dead_host(
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
 
+    let cert_paths: Option<(String, String)> = match payload.ssl_certificate_id {
+        Some(id) => Some(
+            conn.query_row(
+                "SELECT cert_path, key_path FROM certificates WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|_| {
+                let _ = conn.execute("DELETE FROM dead_hosts WHERE id = ?1", [host_id]);
+                (StatusCode::BAD_REQUEST, "Certificate not found".to_string())
+            })?,
+        ),
+        None => None,
+    };
+
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    if let Err(e) = engine.deploy_dead_host(&host, None) {
+    if let Err(e) = engine.deploy_dead_host(
+        &host,
+        cert_paths.as_ref().map(|(c, k)| (c.as_str(), k.as_str())),
+    ) {
         let _ = conn.execute("DELETE FROM dead_hosts WHERE id = ?1", [host_id]);
-        return Err((StatusCode::BAD_REQUEST, format!("Nginx dead host error: {}", e)));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Nginx dead host error: {}", e),
+        ));
     }
 
     Ok(Json(host))
@@ -146,7 +181,11 @@ pub async fn delete_dead_host(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let user_id: i64 = conn
-        .query_row("SELECT user_id FROM dead_hosts WHERE id = ?1", [host_id], |r| r.get(0))
+        .query_row(
+            "SELECT user_id FROM dead_hosts WHERE id = ?1",
+            [host_id],
+            |r| r.get(0),
+        )
         .map_err(|_| (StatusCode::NOT_FOUND, "Dead host not found".to_string()))?;
 
     if claims.role != "admin" && claims.user_id != user_id {
@@ -155,7 +194,9 @@ pub async fn delete_dead_host(
 
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = engine.delete_dead_host(host_id);
+    engine
+        .delete_dead_host(host_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     conn.execute("DELETE FROM dead_hosts WHERE id = ?1", [host_id])
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

@@ -10,7 +10,11 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use std::sync::Arc;
+use std::{
+    io::Write,
+    process::{Command, Stdio},
+    sync::Arc,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateAccessListRequest {
@@ -89,6 +93,22 @@ pub async fn list_access_lists(
             .filter_map(|x| x.ok())
             .collect();
 
+        let mut auth_stmt = conn.prepare(
+            "SELECT id, access_list_id, username FROM access_list_auths WHERE access_list_id = ?1",
+        ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        list.auth_users = auth_stmt
+            .query_map([list.id], |row| {
+                Ok(AccessListAuth {
+                    id: row.get(0)?,
+                    access_list_id: row.get(1)?,
+                    username: row.get(2)?,
+                    password_hash: String::new(),
+                })
+            })
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
         lists.push(list);
     }
 
@@ -105,7 +125,34 @@ pub async fn create_access_list(
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
     if claims.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Only admin can create access lists".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only admin can create access lists".to_string(),
+        ));
+    }
+
+    if payload.name.trim().is_empty() || payload.name.contains(['\n', '\r']) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid access list name".to_string(),
+        ));
+    }
+    for item in &payload.items {
+        if !matches!(item.directive.as_str(), "allow" | "deny") || !valid_address(&item.address) {
+            return Err((StatusCode::BAD_REQUEST, "Invalid IP rule".to_string()));
+        }
+    }
+    for user in &payload.auth_users {
+        if user.username.is_empty()
+            || user.username.contains([':', '\n', '\r'])
+            || user.password.is_empty()
+            || user.password.contains(['\n', '\r'])
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Invalid Basic Auth credential".to_string(),
+            ));
+        }
     }
 
     let conn = pool
@@ -141,8 +188,8 @@ pub async fn create_access_list(
 
     let mut auth_users = Vec::new();
     for user in payload.auth_users {
-        // Hash basic auth password with apr1 / crypt or md5
-        let hash = format!("{{PLAIN}}{}", user.password); // Simple fallback or crypt
+        let hash = hash_basic_auth(&user.password)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         conn.execute(
             "INSERT INTO access_list_auths (access_list_id, username, password_hash) VALUES (?1, ?2, ?3)",
             rusqlite::params![list_id, &user.username, &hash],
@@ -170,7 +217,14 @@ pub async fn create_access_list(
 
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = engine.deploy_access_list(&list);
+    if let Err(e) = engine.deploy_access_list(&list) {
+        let _ = conn.execute("DELETE FROM access_lists WHERE id = ?1", [list_id]);
+        let _ = engine.delete_access_list(list_id);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Nginx configuration failed: {}", e),
+        ));
+    }
 
     Ok(Json(list))
 }
@@ -185,19 +239,80 @@ pub async fn delete_access_list(
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
     if claims.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Only admin can delete access lists".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only admin can delete access lists".to_string(),
+        ));
     }
 
     let conn = pool
         .get()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let uses: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM proxy_hosts WHERE access_list_id = ?1",
+            [list_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if uses > 0 {
+        return Err((
+            StatusCode::CONFLICT,
+            "Access list is used by a proxy host".to_string(),
+        ));
+    }
+
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = engine.delete_access_list(list_id);
+    engine
+        .delete_access_list(list_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     conn.execute("DELETE FROM access_lists WHERE id = ?1", [list_id])
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(serde_json::json!({ "success": true })))
+}
+
+fn valid_address(value: &str) -> bool {
+    if value == "all" {
+        return true;
+    }
+    let (ip, prefix) = value
+        .split_once('/')
+        .map_or((value, None), |(ip, p)| (ip, Some(p)));
+    let addr: std::net::IpAddr = match ip.parse() {
+        Ok(addr) => addr,
+        Err(_) => return false,
+    };
+    match prefix {
+        None => true,
+        Some(p) => p
+            .parse::<u8>()
+            .is_ok_and(|bits| bits <= if addr.is_ipv4() { 32 } else { 128 }),
+    }
+}
+
+fn hash_basic_auth(password: &str) -> anyhow::Result<String> {
+    let mut child = Command::new("openssl")
+        .args(["passwd", "-6", "-stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("OpenSSL stdin unavailable"))?
+        .write_all(password.as_bytes())?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        anyhow::bail!("OpenSSL password hashing failed");
+    }
+    let hash = String::from_utf8(output.stdout)?.trim().to_string();
+    if !hash.starts_with("$6$") {
+        anyhow::bail!("Unexpected password hash format");
+    }
+    Ok(hash)
 }

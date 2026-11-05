@@ -1,6 +1,6 @@
 use crate::api::auth::{extract_bearer_token, verify_jwt};
 use crate::config::AppConfig;
-use crate::core::ssh_user::{generate_credentials, provision_linux_user};
+use crate::core::ssh_user::{delete_linux_user, generate_credentials, provision_linux_user};
 use crate::db::models::{SshCredential, User};
 use crate::db::DbPool;
 use argon2::{
@@ -20,8 +20,8 @@ use std::sync::Arc;
 pub struct CreateUserRequest {
     pub username: String,
     pub password: Option<String>,
-    pub role: Option<String>,        // "tenant" | "admin"
-    pub shell_mode: Option<String>,  // "sftp_only" | "standard_shell" | "sudo_admin"
+    pub role: Option<String>,       // "tenant" | "admin"
+    pub shell_mode: Option<String>, // "sftp_only" | "standard_shell" | "sudo_admin"
 }
 
 #[derive(Debug, Serialize)]
@@ -87,11 +87,18 @@ pub async fn create_user(
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
     if claims.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Only administrators can create users".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only administrators can create users".to_string(),
+        ));
     }
 
     let username = payload.username.trim().to_lowercase();
-    if username.is_empty() || !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if username.is_empty()
+        || !username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err((
             StatusCode::BAD_REQUEST,
             "Username must be non-empty and alphanumeric".to_string(),
@@ -99,11 +106,35 @@ pub async fn create_user(
     }
 
     let role = payload.role.unwrap_or_else(|| "tenant".to_string());
-    let shell_mode = payload.shell_mode.unwrap_or_else(|| "sftp_only".to_string());
+    let shell_mode = payload
+        .shell_mode
+        .unwrap_or_else(|| "sftp_only".to_string());
+    if !matches!(role.as_str(), "tenant" | "admin")
+        || !matches!(
+            shell_mode.as_str(),
+            "sftp_only" | "standard_shell" | "sudo_admin"
+        )
+    {
+        return Err((StatusCode::BAD_REQUEST, "Invalid role or shell mode".into()));
+    }
+    if payload
+        .password
+        .as_deref()
+        .is_some_and(|password| password.contains(['\n', '\r', ':']))
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Password cannot contain a newline or colon".into(),
+        ));
+    }
 
     // 1. Generate SSH Key pair (Ed25519) and password
-    let mut creds = generate_credentials()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Keygen failed: {}", e)))?;
+    let mut creds = generate_credentials().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Keygen failed: {}", e),
+        )
+    })?;
 
     if let Some(custom_pw) = payload.password {
         if !custom_pw.is_empty() {
@@ -119,22 +150,40 @@ pub async fn create_user(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .to_string();
 
-    // 3. Provision Linux system user on OS with Ed25519 & password
-    if let Err(e) = provision_linux_user(&username, &creds, &shell_mode) {
-        tracing::warn!("Linux OS provisioning warning: {}", e);
-    }
-
-    // 4. Save into SQLite
+    // Check for an existing panel account before creating the Linux user.
     let conn = pool
         .get()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?1)",
+            [&username],
+            |r| r.get(0),
+        )
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if exists {
+        return Err((StatusCode::CONFLICT, "User already exists".into()));
+    }
+
+    // Provision Linux account before registering it as available in the panel.
+    provision_linux_user(&username, &creds, &shell_mode).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Linux user provisioning failed: {}", e),
+        )
+    })?;
 
     conn.execute(
         "INSERT INTO users (username, password_hash, role, shell_mode, is_disabled) 
          VALUES (?1, ?2, ?3, ?4, 0)",
         rusqlite::params![&username, &password_hash, &role, &shell_mode],
     )
-    .map_err(|e| (StatusCode::BAD_REQUEST, format!("User already exists or DB error: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("User already exists or DB error: {}", e),
+        )
+    })?;
 
     let user_id = conn.last_insert_rowid();
 
@@ -148,7 +197,12 @@ pub async fn create_user(
             &creds.password_plain
         ],
     )
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to save SSH credentials: {}", e)))?;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to save SSH credentials: {}", e),
+        )
+    })?;
 
     let cred_id = conn.last_insert_rowid();
 
@@ -255,10 +309,19 @@ pub async fn rotate_user_ssh(
         )
         .map_err(|_| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
 
-    let creds = generate_credentials()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Keygen failed: {}", e)))?;
+    let creds = generate_credentials().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Keygen failed: {}", e),
+        )
+    })?;
 
-    let _ = provision_linux_user(&username, &creds, &shell_mode);
+    provision_linux_user(&username, &creds, &shell_mode).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("SSH rotation failed: {}", e),
+        )
+    })?;
 
     conn.execute(
         "UPDATE ssh_credentials 
@@ -308,11 +371,17 @@ pub async fn delete_user(
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
     if claims.role != "admin" {
-        return Err((StatusCode::FORBIDDEN, "Only administrators can delete users".to_string()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only administrators can delete users".to_string(),
+        ));
     }
 
     if user_id == claims.user_id {
-        return Err((StatusCode::BAD_REQUEST, "Cannot delete your own account".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Cannot delete your own account".to_string(),
+        ));
     }
 
     let conn = pool
@@ -320,8 +389,17 @@ pub async fn delete_user(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let username: String = conn
-        .query_row("SELECT username FROM users WHERE id = ?1", [user_id], |r| r.get(0))
+        .query_row("SELECT username FROM users WHERE id = ?1", [user_id], |r| {
+            r.get(0)
+        })
         .map_err(|_| (StatusCode::NOT_FOUND, "User not found".to_string()))?;
+
+    delete_linux_user(&username).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Linux user deletion failed: {}", e),
+        )
+    })?;
 
     conn.execute("DELETE FROM users WHERE id = ?1", [user_id])
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

@@ -9,8 +9,7 @@ server {
     # ACME Challenge endpoint
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
-        root /var/lib/bee-panel/acme-challenges;
-        try_files $uri =404;
+        alias /var/lib/bee-panel/acme-challenges/;
     }
 
     location / {
@@ -39,8 +38,7 @@ server {
     # ACME Challenge endpoint
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
-        root /var/lib/bee-panel/acme-challenges;
-        try_files $uri =404;
+        alias /var/lib/bee-panel/acme-challenges/;
     }
 
     location / {

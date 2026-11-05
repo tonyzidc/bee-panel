@@ -2,11 +2,6 @@
 # Domain: {{ domain_names | join(", ") }}
 # Managed by Bee Panel (Do not edit directly)
 
-{% if access_list_id %}
-# Access List: {{ access_list_id }}
-include /etc/nginx/bee-panel/access/{{ access_list_id }}.conf;
-{% endif %}
-
 server {
     listen 80;
     listen [::]:80;
@@ -15,8 +10,7 @@ server {
     # ACME Challenge endpoint for Let's Encrypt / ZeroSSL
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
-        root /var/lib/bee-panel/acme-challenges;
-        try_files $uri =404;
+        alias /var/lib/bee-panel/acme-challenges/;
     }
 
 {% if ssl_certificate_id and ssl_forced %}
@@ -28,6 +22,9 @@ server {
 {% else %}
     # Main HTTP Reverse Proxy Configuration
     location / {
+{% if access_list_id %}
+        include /etc/nginx/bee-panel/access/{{ access_list_id }}.conf;
+{% endif %}
 {% if block_exploits %}
         # Block common exploit patterns
         if ($query_string ~* "(<|%3C).*script.*(>|%3E)") { return 403; }
@@ -43,6 +40,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Port $server_port;
+{% if access_list_id and not pass_auth_to_host %}
+        proxy_set_header Authorization "";
+{% endif %}
 
 {% if websocket_support %}
         # WebSocket Upgrade support
@@ -53,6 +53,7 @@ server {
 
 {% if caching_enabled %}
         # Asset Caching
+        proxy_cache bee_panel;
         proxy_cache_valid 200 302 10m;
         proxy_cache_valid 404      1m;
 {% endif %}
@@ -60,11 +61,17 @@ server {
 
 {% for loc in custom_locations %}
     location {{ loc.path }} {
+{% if access_list_id %}
+        include /etc/nginx/bee-panel/access/{{ access_list_id }}.conf;
+{% endif %}
         proxy_pass {{ loc.forward_scheme }}://{{ loc.forward_host }}:{{ loc.forward_port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+{% if access_list_id and not pass_auth_to_host %}
+        proxy_set_header Authorization "";
+{% endif %}
 {% if loc.advanced_config %}
         {{ loc.advanced_config }}
 {% endif %}
@@ -97,11 +104,13 @@ server {
     # ACME Challenge endpoint
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
-        root /var/lib/bee-panel/acme-challenges;
-        try_files $uri =404;
+        alias /var/lib/bee-panel/acme-challenges/;
     }
 
     location / {
+{% if access_list_id %}
+        include /etc/nginx/bee-panel/access/{{ access_list_id }}.conf;
+{% endif %}
 {% if block_exploits %}
         # Block common exploit patterns
         if ($query_string ~* "(<|%3C).*script.*(>|%3E)") { return 403; }
@@ -117,6 +126,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-Port $server_port;
+{% if access_list_id and not pass_auth_to_host %}
+        proxy_set_header Authorization "";
+{% endif %}
 
 {% if websocket_support %}
         # WebSocket Upgrade support
@@ -127,6 +139,7 @@ server {
 
 {% if caching_enabled %}
         # Asset Caching
+        proxy_cache bee_panel;
         proxy_cache_valid 200 302 10m;
         proxy_cache_valid 404      1m;
 {% endif %}
@@ -134,11 +147,17 @@ server {
 
 {% for loc in custom_locations %}
     location {{ loc.path }} {
+{% if access_list_id %}
+        include /etc/nginx/bee-panel/access/{{ access_list_id }}.conf;
+{% endif %}
         proxy_pass {{ loc.forward_scheme }}://{{ loc.forward_host }}:{{ loc.forward_port }};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+{% if access_list_id and not pass_auth_to_host %}
+        proxy_set_header Authorization "";
+{% endif %}
 {% if loc.advanced_config %}
         {{ loc.advanced_config }}
 {% endif %}

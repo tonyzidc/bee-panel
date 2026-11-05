@@ -39,8 +39,9 @@ pub fn generate_credentials() -> anyhow::Result<GeneratedSshCredentials> {
     })
 }
 
-fn generate_secure_password(len: usize) -> String {
-    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+pub fn generate_secure_password(len: usize) -> String {
+    const CHARSET: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
     let mut rng = rand::thread_rng();
     (0..len)
         .map(|_| {
@@ -66,19 +67,7 @@ pub fn provision_linux_user(
             return Ok(());
         }
 
-        // Determine login shell based on shell_mode
-        let shell = match shell_mode {
-            "sftp_only" => {
-                if Path::new("/usr/lib/openssh/sftp-server").exists() {
-                    "/usr/lib/openssh/sftp-server"
-                } else if Path::new("/usr/libexec/openssh/sftp-server").exists() {
-                    "/usr/libexec/openssh/sftp-server"
-                } else {
-                    "/sbin/nologin"
-                }
-            }
-            "sudo_admin" | "standard_shell" | _ => "/bin/bash",
-        };
+        let shell = "/bin/bash";
 
         // Check if user already exists
         let user_exists = Command::new("id")
@@ -97,21 +86,32 @@ pub fn provision_linux_user(
             }
         } else {
             // Update shell if user exists
-            let _ = Command::new("usermod")
+            let status = Command::new("usermod")
                 .args(&["-s", shell, username])
-                .status();
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("usermod failed for {}", username);
+            }
         }
 
         // Add to sudo/wheel if sudo_admin
         if shell_mode == "sudo_admin" {
-            let group = if Command::new("getent").args(&["group", "sudo"]).output().map(|o| o.status.success()).unwrap_or(false) {
+            let group = if Command::new("getent")
+                .args(&["group", "sudo"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
                 "sudo"
             } else {
                 "wheel"
             };
-            let _ = Command::new("usermod")
+            let status = Command::new("usermod")
                 .args(&["-aG", group, username])
-                .status();
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("Could not grant sudo group to {}", username);
+            }
         }
 
         // Set Linux user password via chpasswd
@@ -123,7 +123,9 @@ pub fn provision_linux_user(
             use std::io::Write;
             write!(stdin, "{}:{}\n", username, credentials.password_plain)?;
         }
-        let _ = chpasswd.wait();
+        if !chpasswd.wait()?.success() {
+            anyhow::bail!("chpasswd failed for {}", username);
+        }
 
         // Setup ~/.ssh/authorized_keys
         let home_dir = PathBuf::from(format!("/home/{}", username));
@@ -140,19 +142,35 @@ pub fn provision_linux_user(
             fs::set_permissions(&auth_keys, fs::Permissions::from_mode(0o600))?;
 
             // chown -R username:username ~/.ssh
-            let _ = Command::new("chown")
-                .args(&["-R", &format!("{}:{}", username, username), ssh_dir.to_str().unwrap()])
-                .status();
+            let status = Command::new("chown")
+                .args(&[
+                    "-R",
+                    &format!("{}:{}", username, username),
+                    ssh_dir.to_str().unwrap(),
+                ])
+                .status()?;
+            if !status.success() {
+                anyhow::bail!("Could not set SSH key owner for {}", username);
+            }
 
             // Setup web directory /var/www/vhosts/<username>
             let web_dir = PathBuf::from(format!("/var/www/vhosts/{}", username));
             if !web_dir.exists() {
-                let _ = fs::create_dir_all(&web_dir);
-                let _ = Command::new("chown")
-                    .args(&["-R", &format!("{}:{}", username, username), web_dir.to_str().unwrap()])
-                    .status();
+                fs::create_dir_all(&web_dir)?;
+                let status = Command::new("chown")
+                    .args(&[
+                        "-R",
+                        &format!("{}:{}", username, username),
+                        web_dir.to_str().unwrap(),
+                    ])
+                    .status()?;
+                if !status.success() {
+                    anyhow::bail!("Could not set web directory owner for {}", username);
+                }
             }
         }
+
+        configure_sftp_only(username, shell_mode == "sftp_only")?;
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -165,6 +183,91 @@ pub fn provision_linux_user(
         );
     }
 
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_sftp_only(username: &str, enabled: bool) -> anyhow::Result<()> {
+    let directory = Path::new("/etc/ssh/sshd_config.d");
+    if !directory.exists() {
+        return Ok(());
+    }
+    let path = directory.join(format!("90-bee-panel-{}.conf", username));
+    let old = fs::read(&path).ok();
+    if enabled {
+        fs::write(&path, format!(
+            "Match User {}\n    ForceCommand internal-sftp\n    AllowTcpForwarding no\n    X11Forwarding no\n    PermitTTY no\n", username
+        ))?;
+    } else if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    let test = Command::new("sshd").arg("-t").status()?;
+    if !test.success() {
+        if let Some(content) = old {
+            fs::write(&path, content)?;
+        } else {
+            let _ = fs::remove_file(&path);
+        }
+        anyhow::bail!("sshd configuration test failed");
+    }
+    let reload = Command::new("systemctl").args(["reload", "ssh"]).status()?;
+    if !reload.success() {
+        anyhow::bail!("Could not reload SSH service");
+    }
+    Ok(())
+}
+
+pub fn delete_linux_user(username: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        if unsafe { libc::geteuid() } == 0 {
+            let exists = Command::new("id")
+                .arg("-u")
+                .arg(username)
+                .status()?
+                .success();
+            if exists && !Command::new("userdel").arg(username).status()?.success() {
+                anyhow::bail!("userdel failed for {}", username);
+            }
+            configure_sftp_only(username, false)?;
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = username;
+    Ok(())
+}
+
+pub fn set_linux_user_password(username: &str, password: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        if unsafe { libc::geteuid() } == 0
+            && Command::new("id")
+                .arg("-u")
+                .arg(username)
+                .output()?
+                .status
+                .success()
+        {
+            let mut child = Command::new("chpasswd")
+                .stdin(std::process::Stdio::piped())
+                .spawn()?;
+            use std::io::Write;
+            write!(
+                child
+                    .stdin
+                    .take()
+                    .ok_or_else(|| anyhow::anyhow!("chpasswd stdin unavailable"))?,
+                "{}:{}\n",
+                username,
+                password
+            )?;
+            if !child.wait()?.success() {
+                anyhow::bail!("chpasswd failed for {}", username);
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (username, password);
     Ok(())
 }
 

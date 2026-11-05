@@ -1,5 +1,6 @@
 # Bee Panel v2 - Default Fallback Server (Catch-All)
 # Handles requests to IP directly or unmatched domains
+proxy_cache_path /var/cache/nginx/bee-panel levels=1:2 keys_zone=bee_panel:10m max_size=1g inactive=60m use_temp_path=off;
 
 server {
     listen 80 default_server;
@@ -9,8 +10,7 @@ server {
     # ACME Challenge endpoint
     location ^~ /.well-known/acme-challenge/ {
         default_type "text/plain";
-        root /var/lib/bee-panel/acme-challenges;
-        try_files $uri =404;
+        alias /var/lib/bee-panel/acme-challenges/;
     }
 
     location / {

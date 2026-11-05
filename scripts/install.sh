@@ -100,22 +100,23 @@ if [ -f "./target/release/bee-panel" ]; then
 elif [ -f "./target/debug/bee-panel" ]; then
     cp ./target/debug/bee-panel "${TARGET_BIN}"
 else
-    # In production, download pre-built static musl binary from GitHub Releases
-    echo -e "${BLUE}[INFO] Downloading latest static binary from GitHub...${NC}"
+    echo -e "${BLUE}[INFO] Resolving a release binary...${NC}"
     ARCH="$(uname -m)"
     case "${ARCH}" in
-        x86_64) BIN_ARCH="x86_64-unknown-linux-musl" ;;
-        aarch64|arm64) BIN_ARCH="aarch64-unknown-linux-musl" ;;
+        x86_64) BIN_NAME="bee-panel-linux-amd64" ;;
+        aarch64|arm64) BIN_NAME="" ;;
         *) echo -e "${RED}[ERROR] Unsupported architecture: ${ARCH}${NC}"; exit 1 ;;
     esac
 
-    # Fallback to building locally if cargo is present
-    if command -v cargo &>/dev/null; then
+    if [ -n "${BIN_NAME}" ] && curl -fsSL --retry 3 "https://github.com/tonyzidc/bee-panel/releases/latest/download/${BIN_NAME}" -o "${TARGET_BIN}"; then
+        echo -e "${GREEN}[OK] Downloaded ${BIN_NAME} from GitHub Releases.${NC}"
+    elif command -v cargo &>/dev/null; then
         echo -e "${BLUE}[INFO] Compiling native release binary via Cargo...${NC}"
         cargo build --release
         cp target/release/bee-panel "${TARGET_BIN}"
     else
-        echo -e "${YELLOW}[WARN] Cargo not detected. Please ensure binary is placed at ${TARGET_BIN}${NC}"
+        echo -e "${RED}[ERROR] No release binary for ${ARCH} and Cargo is not installed.${NC}"
+        exit 1
     fi
 fi
 
@@ -167,9 +168,13 @@ echo -e "${GREEN}🎉 Bee Panel v2 successfully installed!${NC}"
 echo -e "${GREEN}====================================================================${NC}"
 echo -e "🌐 Web Dashboard:  ${YELLOW}http://${SERVER_IP}:8443${NC}"
 echo -e "👤 Default User:   ${YELLOW}admin${NC}"
-echo -e "🔑 Default Pass:   ${YELLOW}admin${NC}"
+if [ -f /etc/bee-panel/initial-admin-password ]; then
+    echo -e "🔑 Initial Pass:   ${YELLOW}$(cat /etc/bee-panel/initial-admin-password)${NC}"
+else
+    echo -e "🔑 Initial Pass:   ${YELLOW}See the release documentation for this installed version.${NC}"
+fi
 echo -e "\n${BLUE}💡 Next steps:${NC}"
-echo -e "  1. Sign in to the dashboard and change the default admin password."
+echo -e "  1. Store the initial admin password securely, then sign in to the dashboard."
 echo -e "  2. Create Users (Option A) to automatically provision Linux SSH keys & passwords."
 echo -e "  3. Add Proxy Hosts with instant SSL & Nginx hot reload."
 echo -e "${GREEN}====================================================================${NC}\n"

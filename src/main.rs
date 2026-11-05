@@ -74,7 +74,12 @@ async fn run_server(config: AppConfig) -> anyhow::Result<()> {
 
     // Initialize Native Nginx environment
     if let Ok(nginx) = NginxEngine::new(config.clone()) {
-        let _ = nginx.test_and_reload();
+        if let Err(error) = nginx.ensure_default_host() {
+            tracing::warn!("Could not install default ACME host: {}", error);
+        }
+        if let Err(error) = nginx.test_and_reload() {
+            tracing::warn!("Nginx validation failed: {}", error);
+        }
     }
 
     // Shared State & Metrics Collector
@@ -82,14 +87,18 @@ async fn run_server(config: AppConfig) -> anyhow::Result<()> {
     let shared_config = Arc::new(config.clone());
 
     // Background task: Auto-renew SSL certificates every 12 hours
-    let _pool_clone = pool.clone();
-    let _config_clone = shared_config.clone();
+    let renewal_pool = pool.clone();
+    let renewal_config = shared_config.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(43200));
         loop {
             interval.tick().await;
             tracing::info!("Running scheduled ACME SSL renewal check...");
-            // SSL renewal logic
+            if let Err(error) =
+                api::certificates::renew_due_certificates(&renewal_pool, &renewal_config).await
+            {
+                tracing::error!("SSL renewal check failed: {}", error);
+            }
         }
     });
 
@@ -130,7 +139,10 @@ fn run_status(_config: AppConfig) -> anyhow::Result<()> {
     println!("OS:             {}", m.os_name);
     println!("Kernel:         {}", m.kernel_version);
     println!("Uptime:         {} hours", m.uptime_seconds / 3600);
-    println!("CPU Usage:      {:.1}% ({} cores)", m.cpu_usage_percent, m.cpu_count);
+    println!(
+        "CPU Usage:      {:.1}% ({} cores)",
+        m.cpu_usage_percent, m.cpu_count
+    );
     println!(
         "Memory:         {:.1}% ({:.0} MB / {:.0} MB)",
         m.memory_usage_percent,
@@ -143,7 +155,14 @@ fn run_status(_config: AppConfig) -> anyhow::Result<()> {
         m.disk_used_bytes as f64 / 1024.0 / 1024.0 / 1024.0,
         m.disk_total_bytes as f64 / 1024.0 / 1024.0 / 1024.0
     );
-    println!("Nginx Status:   {}", if m.nginx_running { "RUNNING" } else { "STOPPED" });
+    println!(
+        "Nginx Status:   {}",
+        if m.nginx_running {
+            "RUNNING"
+        } else {
+            "STOPPED"
+        }
+    );
     if let Some(v) = m.nginx_version {
         println!("Nginx Version:  {}", v);
     }
@@ -160,7 +179,7 @@ fn run_reset_password(config: AppConfig, username: &str) -> anyhow::Result<()> {
     use rusqlite::Connection;
 
     let conn = Connection::open(&config.database_path)?;
-    let new_password = "admin"; // Default reset or generate
+    let new_password = core::ssh_user::generate_secure_password(24);
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
@@ -174,7 +193,10 @@ fn run_reset_password(config: AppConfig, username: &str) -> anyhow::Result<()> {
     )?;
 
     if updated > 0 {
-        println!("✅ Password for user '{}' successfully reset to '{}'", username, new_password);
+        println!(
+            "✅ Password for user '{}' successfully reset to '{}'",
+            username, new_password
+        );
     } else {
         println!("❌ User '{}' not found in database.", username);
     }
@@ -191,7 +213,10 @@ fn run_user_list(config: AppConfig) -> anyhow::Result<()> {
          FROM users u LEFT JOIN ssh_credentials s ON u.id = s.user_id",
     )?;
 
-    println!("{:<6} {:<16} {:<10} {:<16} {:<30}", "ID", "USERNAME", "ROLE", "SHELL_MODE", "SSH PUBLIC KEY");
+    println!(
+        "{:<6} {:<16} {:<10} {:<16} {:<30}",
+        "ID", "USERNAME", "ROLE", "SHELL_MODE", "SSH PUBLIC KEY"
+    );
     println!("--------------------------------------------------------------------------------");
 
     let rows = stmt.query_map([], |r| {
@@ -200,14 +225,22 @@ fn run_user_list(config: AppConfig) -> anyhow::Result<()> {
             r.get::<_, String>(1)?,
             r.get::<_, String>(2)?,
             r.get::<_, String>(3)?,
-            r.get::<_, Option<String>>(4)?.unwrap_or_else(|| "N/A".to_string()),
+            r.get::<_, Option<String>>(4)?
+                .unwrap_or_else(|| "N/A".to_string()),
         ))
     })?;
 
     for row in rows {
         let (id, user, role, shell, key) = row?;
-        let short_key = if key.len() > 30 { format!("{}...", &key[..27]) } else { key };
-        println!("{:<6} {:<16} {:<10} {:<16} {:<30}", id, user, role, shell, short_key);
+        let short_key = if key.len() > 30 {
+            format!("{}...", &key[..27])
+        } else {
+            key
+        };
+        println!(
+            "{:<6} {:<16} {:<10} {:<16} {:<30}",
+            id, user, role, shell, short_key
+        );
     }
 
     Ok(())

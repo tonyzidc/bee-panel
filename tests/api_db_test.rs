@@ -90,6 +90,8 @@ fn test_database_schema_and_crud() {
     )
     .unwrap();
 
-    let count: i64 = conn.query_row("SELECT count(*) FROM proxy_hosts", [], |r| r.get(0)).unwrap();
+    let count: i64 = conn
+        .query_row("SELECT count(*) FROM proxy_hosts", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(count, 1);
 }

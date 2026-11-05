@@ -12,19 +12,18 @@ pub fn create_pool(database_path: &Path) -> anyhow::Result<DbPool> {
         std::fs::create_dir_all(parent)?;
     }
 
-    let manager = SqliteConnectionManager::file(database_path)
-        .with_init(|c| {
-            c.execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA synchronous = NORMAL;
-                 PRAGMA foreign_keys = ON;
-                 PRAGMA busy_timeout = 5000;",
-            )
-        });
+    let setup = Connection::open(database_path)?;
+    setup.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+    drop(setup);
 
-    let pool = Pool::builder()
-        .max_size(16)
-        .build(manager)?;
+    let manager = SqliteConnectionManager::file(database_path).with_init(|c| {
+        c.execute_batch(
+            "PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;",
+        )
+    });
+
+    let pool = Pool::builder().max_size(16).build(manager)?;
 
     // Run schema migrations
     let conn = pool.get()?;
@@ -68,6 +67,8 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
             key_path TEXT NOT NULL,
             intermediate_path TEXT,
             auto_renew INTEGER NOT NULL DEFAULT 1,
+            contact_email TEXT,
+            is_staging INTEGER NOT NULL DEFAULT 0,
             is_valid INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -193,6 +194,22 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
         "#,
     )?;
 
+    // Existing installations predate the renewal metadata.
+    let mut columns = conn.prepare("PRAGMA table_info(certificates)")?;
+    let names = columns
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(columns);
+    if !names.iter().any(|name| name == "contact_email") {
+        conn.execute("ALTER TABLE certificates ADD COLUMN contact_email TEXT", [])?;
+    }
+    if !names.iter().any(|name| name == "is_staging") {
+        conn.execute(
+            "ALTER TABLE certificates ADD COLUMN is_staging INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+
     // Seed default admin if no users exist
     let count: i64 = conn.query_row("SELECT count(*) FROM users", [], |r| r.get(0))?;
     if count == 0 {
@@ -202,8 +219,9 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
         };
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
+        let initial_password = crate::core::ssh_user::generate_secure_password(24);
         let password_hash = argon2
-            .hash_password(b"admin", &salt)
+            .hash_password(initial_password.as_bytes(), &salt)
             .map_err(|e| anyhow::anyhow!("Failed to hash password: {}", e))?
             .to_string();
 
@@ -213,7 +231,16 @@ fn init_schema(conn: &Connection) -> anyhow::Result<()> {
             [&password_hash],
         )?;
 
-        tracing::info!("Initialized default administrator account: admin / admin");
+        if let Some(parent) = conn.path().and_then(|p| Path::new(p).parent()) {
+            let password_file = parent.join("initial-admin-password");
+            std::fs::write(&password_file, &initial_password)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&password_file, std::fs::Permissions::from_mode(0o600))?;
+            }
+            tracing::info!("Initial admin password saved to {:?}", password_file);
+        }
     }
 
     Ok(())

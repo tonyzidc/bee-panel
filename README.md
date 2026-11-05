@@ -24,7 +24,9 @@ During installation, the script automatically:
 After installation, access:
 - 🌐 **Web Dashboard**: `http://<SERVER_IP>:8443`
 - 👤 **Default User**: `admin`
-- 🔑 **Default Password**: `admin`
+- 🔑 **Initial Password**: Printed by the installer and saved in `/etc/bee-panel/initial-admin-password` with root-only access on new installations.
+
+Existing installations keep their current password. Use **Change password** in the account bar after signing in.
 
 ---
 
@@ -65,7 +67,7 @@ After installation, access:
 - Automatically generates an **OpenSSH Ed25519 Key Pair** (`.pem`) and secure system password.
 - Injects public key into `/home/<username>/.ssh/authorized_keys` with strict permissions (`700/600`).
 - Configurable OS Isolation Modes:
-  - **SFTP Only**: Chroot/Restricted web access to `/var/www/vhosts/<username>` (no interactive shell).
+- **SFTP Only**: Internal SFTP is enforced through an `sshd_config.d` user rule (no interactive shell).
   - **Standard Shell**: `/bin/bash` terminal access without sudo.
   - **Sudo Admin**: Full administrative root shell access.
 - 1-Click SSH key download, password reveal, and key rotation directly in the Web UI.

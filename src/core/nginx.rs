@@ -59,6 +59,7 @@ impl NginxEngine {
             hsts_enabled => host.hsts_enabled,
             hsts_subdomains => host.hsts_subdomains,
             access_list_id => host.access_list_id,
+            pass_auth_to_host => host.pass_auth_to_host,
             custom_locations => host.custom_locations,
             advanced_config => host.advanced_config.as_deref().unwrap_or(""),
         })?;
@@ -160,23 +161,70 @@ impl NginxEngine {
         Ok(rendered)
     }
 
+    pub fn ensure_default_host(&self) -> anyhow::Result<()> {
+        if !Command::new("which")
+            .arg("nginx")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        fs::create_dir_all("/var/cache/nginx/bee-panel")?;
+        let path = self.config.nginx_config_dir.join("default_host.conf");
+        if !path.exists() {
+            let content = self.env.get_template("default_host")?.render(context! {})?;
+            self.atomic_write_and_reload(&path, &content)?;
+        }
+        self.migrate_legacy_challenges()?;
+        Ok(())
+    }
+
+    fn migrate_legacy_challenges(&self) -> anyhow::Result<()> {
+        for entry in fs::read_dir(&self.config.nginx_config_dir)? {
+            let path = entry?.path();
+            let filename = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if !(filename.starts_with("proxy_")
+                || filename.starts_with("redir_")
+                || filename.starts_with("dead_"))
+                || path.extension().and_then(|ext| ext.to_str()) != Some("conf")
+            {
+                continue;
+            }
+            let content = fs::read_to_string(&path)?;
+            let updated = content.replace(
+                "root /var/lib/bee-panel/acme-challenges;\n        try_files $uri =404;",
+                "alias /var/lib/bee-panel/acme-challenges/;",
+            );
+            if updated != content {
+                self.atomic_write_and_reload(&path, &updated)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn deploy_proxy_host(
         &self,
         host: &ProxyHost,
         ssl_cert: Option<(&str, &str)>,
     ) -> anyhow::Result<()> {
         let content = self.render_proxy_host(host, ssl_cert)?;
-        let file_path = self.config.nginx_config_dir.join(format!("proxy_{}.conf", host.id));
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("proxy_{}.conf", host.id));
         self.atomic_write_and_reload(&file_path, &content)
     }
 
     pub fn delete_proxy_host(&self, host_id: i64) -> anyhow::Result<()> {
-        let file_path = self.config.nginx_config_dir.join(format!("proxy_{}.conf", host_id));
-        if file_path.exists() {
-            let _ = fs::remove_file(&file_path);
-            self.test_and_reload()?;
-        }
-        Ok(())
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("proxy_{}.conf", host_id));
+        self.remove_and_reload(&file_path)
     }
 
     pub fn deploy_redirection(
@@ -185,32 +233,36 @@ impl NginxEngine {
         ssl_cert: Option<(&str, &str)>,
     ) -> anyhow::Result<()> {
         let content = self.render_redirection_host(host, ssl_cert)?;
-        let file_path = self.config.nginx_config_dir.join(format!("redir_{}.conf", host.id));
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("redir_{}.conf", host.id));
         self.atomic_write_and_reload(&file_path, &content)
     }
 
     pub fn delete_redirection(&self, host_id: i64) -> anyhow::Result<()> {
-        let file_path = self.config.nginx_config_dir.join(format!("redir_{}.conf", host_id));
-        if file_path.exists() {
-            let _ = fs::remove_file(&file_path);
-            self.test_and_reload()?;
-        }
-        Ok(())
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("redir_{}.conf", host_id));
+        self.remove_and_reload(&file_path)
     }
 
     pub fn deploy_stream(&self, host: &StreamHost) -> anyhow::Result<()> {
         let content = self.render_stream(host)?;
-        let file_path = self.config.nginx_stream_dir.join(format!("stream_{}.conf", host.id));
+        let file_path = self
+            .config
+            .nginx_stream_dir
+            .join(format!("stream_{}.conf", host.id));
         self.atomic_write_and_reload(&file_path, &content)
     }
 
     pub fn delete_stream(&self, host_id: i64) -> anyhow::Result<()> {
-        let file_path = self.config.nginx_stream_dir.join(format!("stream_{}.conf", host_id));
-        if file_path.exists() {
-            let _ = fs::remove_file(&file_path);
-            self.test_and_reload()?;
-        }
-        Ok(())
+        let file_path = self
+            .config
+            .nginx_stream_dir
+            .join(format!("stream_{}.conf", host_id));
+        self.remove_and_reload(&file_path)
     }
 
     pub fn deploy_dead_host(
@@ -219,43 +271,118 @@ impl NginxEngine {
         ssl_cert: Option<(&str, &str)>,
     ) -> anyhow::Result<()> {
         let content = self.render_dead_host(host, ssl_cert)?;
-        let file_path = self.config.nginx_config_dir.join(format!("dead_{}.conf", host.id));
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("dead_{}.conf", host.id));
         self.atomic_write_and_reload(&file_path, &content)
     }
 
     pub fn delete_dead_host(&self, host_id: i64) -> anyhow::Result<()> {
-        let file_path = self.config.nginx_config_dir.join(format!("dead_{}.conf", host_id));
-        if file_path.exists() {
-            let _ = fs::remove_file(&file_path);
-            self.test_and_reload()?;
-        }
-        Ok(())
+        let file_path = self
+            .config
+            .nginx_config_dir
+            .join(format!("dead_{}.conf", host_id));
+        self.remove_and_reload(&file_path)
     }
 
     pub fn deploy_access_list(&self, list: &AccessList) -> anyhow::Result<()> {
         let content = self.render_access_list(list)?;
-        let file_path = self.config.nginx_access_dir.join(format!("{}.conf", list.id));
-        fs::write(&file_path, content)?;
-
+        let file_path = self
+            .config
+            .nginx_access_dir
+            .join(format!("{}.conf", list.id));
         // Write htpasswd if users exist
         if !list.auth_users.is_empty() {
-            let htpasswd_path = self.config.nginx_access_dir.join(format!("htpasswd_{}", list.id));
+            let htpasswd_path = self
+                .config
+                .nginx_access_dir
+                .join(format!("htpasswd_{}", list.id));
             let mut htpasswd_lines = Vec::new();
             for u in &list.auth_users {
                 htpasswd_lines.push(format!("{}:{}", u.username, u.password_hash));
             }
-            fs::write(htpasswd_path, htpasswd_lines.join("\n"))?;
+            fs::write(&htpasswd_path, htpasswd_lines.join("\n"))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let worker = fs::read_to_string("/etc/nginx/nginx.conf")
+                    .ok()
+                    .and_then(|config| {
+                        config
+                            .lines()
+                            .map(str::trim)
+                            .find(|line| line.starts_with("user "))
+                            .and_then(|line| {
+                                line.trim_end_matches(';')
+                                    .split_whitespace()
+                                    .nth(1)
+                                    .map(str::to_string)
+                            })
+                    });
+                if let Some(user) = worker {
+                    let output = Command::new("getent").args(["passwd", &user]).output()?;
+                    if !output.status.success() {
+                        anyhow::bail!("Nginx worker user not found");
+                    }
+                    let passwd = String::from_utf8(output.stdout)?;
+                    let gid = passwd
+                        .trim()
+                        .split(':')
+                        .nth(3)
+                        .ok_or_else(|| anyhow::anyhow!("Nginx worker group not found"))?;
+                    let status = Command::new("chown")
+                        .arg(format!("root:{}", gid))
+                        .arg(&htpasswd_path)
+                        .status()?;
+                    if !status.success() {
+                        anyhow::bail!("Could not set htpasswd owner");
+                    }
+                    fs::set_permissions(&htpasswd_path, fs::Permissions::from_mode(0o640))?;
+                } else {
+                    fs::set_permissions(&htpasswd_path, fs::Permissions::from_mode(0o644))?;
+                }
+            }
         }
-
-        self.test_and_reload()
+        if let Err(error) = self.atomic_write_and_reload(&file_path, &content) {
+            let _ = fs::remove_file(
+                self.config
+                    .nginx_access_dir
+                    .join(format!("htpasswd_{}", list.id)),
+            );
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn delete_access_list(&self, list_id: i64) -> anyhow::Result<()> {
-        let file_path = self.config.nginx_access_dir.join(format!("{}.conf", list_id));
-        let htpasswd_path = self.config.nginx_access_dir.join(format!("htpasswd_{}", list_id));
-        let _ = fs::remove_file(file_path);
-        let _ = fs::remove_file(htpasswd_path);
-        self.test_and_reload()
+        let file_path = self
+            .config
+            .nginx_access_dir
+            .join(format!("{}.conf", list_id));
+        let htpasswd_path = self
+            .config
+            .nginx_access_dir
+            .join(format!("htpasswd_{}", list_id));
+        self.remove_and_reload(&file_path)?;
+        if htpasswd_path.exists() {
+            fs::remove_file(htpasswd_path)?;
+        }
+        Ok(())
+    }
+
+    fn remove_and_reload(&self, path: &Path) -> anyhow::Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let old = fs::read(path)?;
+        fs::remove_file(path)?;
+        if let Err(error) = self.test_and_reload() {
+            let _ = fs::write(path, old);
+            let _ = self.test_and_reload();
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn atomic_write_and_reload(&self, path: &Path, content: &str) -> anyhow::Result<()> {
@@ -283,6 +410,7 @@ impl NginxEngine {
             } else {
                 let _ = fs::remove_file(path);
             }
+            let _ = self.test_and_reload();
             return Err(e);
         }
 
@@ -303,9 +431,7 @@ impl NginxEngine {
         }
 
         // Test syntax
-        let test_output = Command::new("nginx")
-            .arg("-t")
-            .output()?;
+        let test_output = Command::new("nginx").arg("-t").output()?;
 
         if !test_output.status.success() {
             let stderr = String::from_utf8_lossy(&test_output.stderr);
@@ -313,8 +439,15 @@ impl NginxEngine {
         }
 
         // Reload Nginx
-        let reload_cmd = if Command::new("which").arg("systemctl").output().map(|o| o.status.success()).unwrap_or(false) {
-            Command::new("systemctl").args(&["reload", "nginx"]).output()
+        let reload_cmd = if Command::new("which")
+            .arg("systemctl")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            Command::new("systemctl")
+                .args(&["reload", "nginx"])
+                .output()
         } else {
             Command::new("nginx").args(&["-s", "reload"]).output()
         };
@@ -326,13 +459,9 @@ impl NginxEngine {
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::warn!("Nginx reload exited with status code: {}", stderr);
-                Ok(())
+                Err(anyhow::anyhow!("Nginx reload failed: {}", stderr))
             }
-            Err(e) => {
-                tracing::warn!("Failed to invoke reload command: {}", e);
-                Ok(())
-            }
+            Err(e) => Err(e.into()),
         }
     }
 }

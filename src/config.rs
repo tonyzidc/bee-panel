@@ -1,3 +1,4 @@
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -37,7 +38,7 @@ impl Default for AppConfig {
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(8443),
             jwt_secret: std::env::var("BEE_JWT_SECRET")
-                .unwrap_or_else(|_| "bee-panel-super-secret-jwt-key-change-in-production".to_string()),
+                .unwrap_or_else(|_| load_or_create_secret(&base_dir)),
             database_path: base_dir.join("bee-panel.db"),
             nginx_config_dir: nginx_base.join("conf.d"),
             nginx_stream_dir: nginx_base.join("streams.d"),
@@ -64,7 +65,13 @@ impl AppConfig {
 
         if config_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&config_path) {
-                if let Ok(cfg) = serde_yaml::from_str(&content) {
+                if let Ok(mut cfg) = serde_yaml::from_str::<Self>(&content) {
+                    if cfg.jwt_secret == "bee-panel-super-secret-jwt-key-change-in-production"
+                        || cfg.jwt_secret.trim().is_empty()
+                    {
+                        let base = cfg.database_path.parent().unwrap_or(&cfg.database_path);
+                        cfg.jwt_secret = load_or_create_secret(base);
+                    }
                     return cfg;
                 }
             }
@@ -85,4 +92,28 @@ impl AppConfig {
         let _ = std::fs::create_dir_all(&self.web_roots_dir);
         Ok(())
     }
+}
+
+fn load_or_create_secret(base_dir: &std::path::Path) -> String {
+    let path = base_dir.join("jwt-secret");
+    if let Ok(secret) = std::fs::read_to_string(&path) {
+        if secret.trim().len() >= 32 {
+            return secret.trim().to_string();
+        }
+    }
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let secret: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    if let Err(error) =
+        std::fs::create_dir_all(base_dir).and_then(|_| std::fs::write(&path, &secret))
+    {
+        tracing::error!("Could not persist JWT secret at {:?}: {}", path, error);
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+    secret
 }

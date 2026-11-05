@@ -7,8 +7,8 @@ pub struct User {
     #[allow(dead_code)]
     #[serde(skip_serializing)]
     pub password_hash: String,
-    pub role: String,        // "admin" | "tenant"
-    pub shell_mode: String,  // "sftp_only" | "standard_shell" | "sudo_admin"
+    pub role: String,       // "admin" | "tenant"
+    pub shell_mode: String, // "sftp_only" | "standard_shell" | "sudo_admin"
     pub is_disabled: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -53,6 +53,7 @@ pub struct ProxyHost {
     pub hsts_enabled: bool,
     pub hsts_subdomains: bool,
     pub access_list_id: Option<i64>,
+    pub pass_auth_to_host: bool,
     pub advanced_config: Option<String>,
     pub is_enabled: bool,
     pub custom_locations: Vec<CustomLocation>,

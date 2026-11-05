@@ -1,4 +1,5 @@
 use crate::api::auth::{extract_bearer_token, verify_jwt};
+use crate::api::validation;
 use crate::config::AppConfig;
 use crate::core::nginx::NginxEngine;
 use crate::db::models::StreamHost;
@@ -79,6 +80,18 @@ pub async fn create_stream(
     let token = extract_bearer_token(&headers)?;
     let claims = verify_jwt(&token, &config.jwt_secret)?;
 
+    validation::port(payload.incoming_port)?;
+    validation::port(payload.forward_port)?;
+    if !validation::upstream_host(&payload.forward_host) {
+        return Err((StatusCode::BAD_REQUEST, "Invalid forward host".into()));
+    }
+    if !payload.tcp_forwarding.unwrap_or(true) && !payload.udp_forwarding.unwrap_or(false) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Select TCP or UDP forwarding".into(),
+        ));
+    }
+
     let conn = pool
         .get()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -121,7 +134,10 @@ pub async fn create_stream(
 
     if let Err(e) = engine.deploy_stream(&host) {
         let _ = conn.execute("DELETE FROM stream_hosts WHERE id = ?1", [host_id]);
-        return Err((StatusCode::BAD_REQUEST, format!("Nginx stream error: {}", e)));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Nginx stream error: {}", e),
+        ));
     }
 
     Ok(Json(host))
@@ -141,7 +157,11 @@ pub async fn delete_stream(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let user_id: i64 = conn
-        .query_row("SELECT user_id FROM stream_hosts WHERE id = ?1", [host_id], |r| r.get(0))
+        .query_row(
+            "SELECT user_id FROM stream_hosts WHERE id = ?1",
+            [host_id],
+            |r| r.get(0),
+        )
         .map_err(|_| (StatusCode::NOT_FOUND, "Stream not found".to_string()))?;
 
     if claims.role != "admin" && claims.user_id != user_id {
@@ -150,7 +170,9 @@ pub async fn delete_stream(
 
     let engine = NginxEngine::new((*config).clone())
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let _ = engine.delete_stream(host_id);
+    engine
+        .delete_stream(host_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     conn.execute("DELETE FROM stream_hosts WHERE id = ?1", [host_id])
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

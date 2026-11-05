@@ -44,7 +44,8 @@ case "${PKG_MANAGER}" in
     apt)
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
-        apt-get install -y -qq nginx curl tar openssl ufw
+        apt-get install -y -qq nginx libnginx-mod-stream curl tar openssl ufw
+        rm -f /etc/nginx/sites-enabled/default
         ;;
     dnf|yum)
         ${PKG_MANAGER} install -y nginx curl tar openssl firewalld

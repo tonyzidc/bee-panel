@@ -1,6 +1,13 @@
 use rand::Rng;
 use ssh_key::{Algorithm, LineEnding, PrivateKey};
 
+#[cfg(target_os = "linux")]
+use std::fs;
+#[cfg(target_os = "linux")]
+use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command;
+
 #[derive(Debug, Clone)]
 pub struct GeneratedSshCredentials {
     pub private_key_pem: String,
@@ -45,7 +52,7 @@ fn generate_secure_password(len: usize) -> String {
 
 pub fn provision_linux_user(
     username: &str,
-    _credentials: &GeneratedSshCredentials,
+    credentials: &GeneratedSshCredentials,
     shell_mode: &str, // "sftp_only" | "standard_shell" | "sudo_admin"
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
@@ -150,6 +157,7 @@ pub fn provision_linux_user(
 
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = credentials;
         tracing::info!(
             "Running on non-Linux OS. Mocked OS user provisioning for '{}' ({})",
             username,

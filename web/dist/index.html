@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐝 Bee Panel v2 - Native Rust Reverse Proxy & Host Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fefce8',
+              100: '#fef9c3',
+              400: '#facc15',
+              500: '#eab308',
+              600: '#ca8a04',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+    .tab-active { border-bottom: 2px solid #eab308; color: #ca8a04; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Top Navigation Bar -->
+  <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🐝</span>
+        <div>
+          <span class="font-bold text-lg tracking-tight text-slate-900 dark:text-white">Bee Panel</span>
+          <span class="text-xs font-semibold px-2 py-0.5 ml-2 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 rounded-full">v2.0 Rust Native</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Only when logged in) -->
+      <nav id="nav-tabs" class="hidden md:flex space-x-6 text-sm font-medium text-slate-600 dark:text-slate-300">
+        <button onclick="switchTab('dashboard')" class="nav-btn py-5 tab-active" data-tab="dashboard"><i class="fa-solid fa-chart-line mr-1.5"></i> Dashboard</button>
+        <button onclick="switchTab('proxy-hosts')" class="nav-btn py-5" data-tab="proxy-hosts"><i class="fa-solid fa-network-wired mr-1.5"></i> Proxy Hosts</button>
+        <button onclick="switchTab('redirections')" class="nav-btn py-5" data-tab="redirections"><i class="fa-solid fa-arrow-turn-down mr-1.5"></i> Redirections</button>
+        <button onclick="switchTab('streams')" class="nav-btn py-5" data-tab="streams"><i class="fa-solid fa-satellite-dish mr-1.5"></i> Streams (L4)</button>
+        <button onclick="switchTab('dead-hosts')" class="nav-btn py-5" data-tab="dead-hosts"><i class="fa-solid fa-ban mr-1.5"></i> 404 Hosts</button>
+        <button onclick="switchTab('access-lists')" class="nav-btn py-5" data-tab="access-lists"><i class="fa-solid fa-shield-halved mr-1.5"></i> Access Lists</button>
+        <button onclick="switchTab('certificates')" class="nav-btn py-5" data-tab="certificates"><i class="fa-solid fa-lock mr-1.5"></i> SSL / ACME</button>
+        <button onclick="switchTab('users')" class="nav-btn py-5" data-tab="users"><i class="fa-solid fa-key mr-1.5"></i> Users & SSH</button>
+      </nav>
+
+      <!-- User Menu -->
+      <div id="user-controls" class="flex items-center space-x-3">
+        <button onclick="toggleDarkMode()" class="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">
+          <i id="theme-icon" class="fa-solid fa-moon"></i>
+        </button>
+        <div id="logged-user" class="hidden items-center space-x-3">
+          <span id="user-badge" class="text-xs bg-slate-200 dark:bg-slate-700 px-2.5 py-1 rounded-full font-mono">admin</span>
+          <button onclick="logout()" class="text-xs text-red-600 hover:text-red-700 dark:text-red-400 font-medium">Logout</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Login Modal / Card -->
+  <main id="login-section" class="flex-1 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl p-8 max-w-md w-full">
+      <div class="text-center mb-8">
+        <span class="text-5xl">🐝</span>
+        <h2 class="text-2xl font-bold mt-4 text-slate-900 dark:text-white">Bee Panel v2</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Lightweight Native Rust Reverse Proxy Manager</p>
+      </div>
+
+      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">Username</label>
+          <input type="text" id="login-username" required class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none text-sm" placeholder="admin">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1">Password</label>
+          <input type="password" id="login-password" required class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-amber-500 focus:outline-none text-sm" placeholder="••••••••">
+        </div>
+        <div id="login-error" class="hidden text-xs text-red-600 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-lg"></div>
+        <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg shadow-sm transition-all text-sm">Sign In</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Main App Dashboard & Views -->
+  <main id="app-section" class="hidden flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    
+    <!-- Tab 1: Dashboard -->
+    <div id="tab-dashboard" class="tab-content space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">System Metrics & Overview</h1>
+          <p class="text-sm text-slate-500 dark:text-slate-400" id="host-os-info">Linux Host Manager</p>
+        </div>
+        <button onclick="loadMetrics()" class="text-xs px-3 py-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600">
+          <i class="fa-solid fa-arrows-rotate mr-1"></i> Refresh
+        </button>
+      </div>
+
+      <!-- Metric Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs uppercase font-semibold text-slate-500">CPU Usage</span>
+            <i class="fa-solid fa-microchip text-amber-500"></i>
+          </div>
+          <div class="text-2xl font-bold" id="metric-cpu">0%</div>
+          <div class="text-xs text-slate-400 mt-1" id="metric-cpu-cores">0 Cores</div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs uppercase font-semibold text-slate-500">Memory (RAM)</span>
+            <i class="fa-solid fa-memory text-blue-500"></i>
+          </div>
+          <div class="text-2xl font-bold" id="metric-ram">0%</div>
+          <div class="text-xs text-slate-400 mt-1" id="metric-ram-used">0 MB / 0 MB</div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs uppercase font-semibold text-slate-500">Disk Storage</span>
+            <i class="fa-solid fa-hard-drive text-emerald-500"></i>
+          </div>
+          <div class="text-2xl font-bold" id="metric-disk">0%</div>
+          <div class="text-xs text-slate-400 mt-1" id="metric-disk-used">0 GB / 0 GB</div>
+        </div>
+
+        <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs uppercase font-semibold text-slate-500">Nginx Engine</span>
+            <i class="fa-solid fa-server text-purple-500"></i>
+          </div>
+          <div class="text-xl font-bold text-emerald-600 dark:text-emerald-400" id="metric-nginx-status">Active</div>
+          <div class="text-xs text-slate-400 mt-1" id="metric-nginx-ver">Native Process</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Proxy Hosts -->
+    <div id="tab-proxy-hosts" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Proxy Hosts</h2>
+          <p class="text-sm text-slate-500">Route domains to internal services or containers with SSL & Caching</p>
+        </div>
+        <button onclick="openModal('modal-add-proxy')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-plus mr-1"></i> Add Proxy Host
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Source Domains</th>
+              <th class="px-6 py-3">Forward Target</th>
+              <th class="px-6 py-3">SSL Status</th>
+              <th class="px-6 py-3">Features</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="proxy-hosts-table" class="divide-y divide-slate-200 dark:divide-slate-700">
+            <!-- Dynamic rows -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 3: Redirections -->
+    <div id="tab-redirections" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Redirection Hosts</h2>
+          <p class="text-sm text-slate-500">Redirect traffic from one domain/URL to another (301, 302)</p>
+        </div>
+        <button onclick="openModal('modal-add-redir')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-plus mr-1"></i> Add Redirection
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Domain</th>
+              <th class="px-6 py-3">Forward URL</th>
+              <th class="px-6 py-3">HTTP Code</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="redirections-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 4: Streams -->
+    <div id="tab-streams" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Streams (Layer 4 Forwarding)</h2>
+          <p class="text-sm text-slate-500">Forward raw TCP/UDP ports (Databases, Game servers, Custom services)</p>
+        </div>
+        <button onclick="openModal('modal-add-stream')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-plus mr-1"></i> Add Stream
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Incoming Port</th>
+              <th class="px-6 py-3">Forward Target</th>
+              <th class="px-6 py-3">Protocol</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="streams-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 5: 404 Hosts -->
+    <div id="tab-dead-hosts" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">404 / Maintenance Hosts</h2>
+          <p class="text-sm text-slate-500">Return custom error pages or maintenance notices for specific domains</p>
+        </div>
+        <button onclick="openModal('modal-add-dead')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-plus mr-1"></i> Add 404 Host
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Domain</th>
+              <th class="px-6 py-3">Status Code</th>
+              <th class="px-6 py-3">Message</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dead-hosts-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 6: Access Lists -->
+    <div id="tab-access-lists" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Access Lists</h2>
+          <p class="text-sm text-slate-500">HTTP Basic Authentication & IP Whitelists/Blacklists</p>
+        </div>
+        <button onclick="openModal('modal-add-access')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-plus mr-1"></i> Add Access List
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Name</th>
+              <th class="px-6 py-3">Mode</th>
+              <th class="px-6 py-3">IP Rules</th>
+              <th class="px-6 py-3">Auth Users</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="access-lists-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 7: SSL Certificates -->
+    <div id="tab-certificates" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">SSL / TLS Certificates</h2>
+          <p class="text-sm text-slate-500">Pure Rust ACME Engine (Let's Encrypt / ZeroSSL) & Custom SSL</p>
+        </div>
+        <div class="space-x-2">
+          <button onclick="openModal('modal-add-cert-le')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+            <i class="fa-solid fa-certificate mr-1"></i> Request Let's Encrypt
+          </button>
+          <button onclick="openModal('modal-add-cert-custom')" class="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 rounded-lg text-sm font-semibold">
+            <i class="fa-solid fa-upload mr-1"></i> Upload Custom SSL
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Certificate Name / Domains</th>
+              <th class="px-6 py-3">Provider</th>
+              <th class="px-6 py-3">Expires At</th>
+              <th class="px-6 py-3">Auto Renew</th>
+              <th class="px-6 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="certificates-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 8: Users & SSH Management -->
+    <div id="tab-users" class="tab-content hidden space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Users & Linux Host SSH Provisioning</h2>
+          <p class="text-sm text-slate-500">Users created here automatically provision Linux OS accounts with Ed25519 SSH keys & passwords</p>
+        </div>
+        <button onclick="openModal('modal-add-user')" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm shadow-sm">
+          <i class="fa-solid fa-user-plus mr-1"></i> Create User & SSH
+        </button>
+      </div>
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-50 dark:bg-slate-900/50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-700">
+            <tr>
+              <th class="px-6 py-3">Username</th>
+              <th class="px-6 py-3">Panel Role</th>
+              <th class="px-6 py-3">OS Shell & Perms (Option A)</th>
+              <th class="px-6 py-3">Created At</th>
+              <th class="px-6 py-3 text-right">SSH Credentials</th>
+            </tr>
+          </thead>
+          <tbody id="users-table" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- SSH Credentials Modal -->
+  <div id="modal-ssh-creds" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-4 border border-slate-200 dark:border-slate-700 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold flex items-center"><i class="fa-solid fa-key text-amber-500 mr-2"></i> SSH & SFTP Credentials</h3>
+        <button onclick="closeModal('modal-ssh-creds')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-500 uppercase">SSH Command</label>
+          <div class="flex items-center mt-1">
+            <code id="ssh-command-box" class="flex-1 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-l-lg text-xs break-all text-amber-600 dark:text-amber-400"></code>
+            <button onclick="copyToClipboard('ssh-command-box')" class="px-3 py-2.5 bg-amber-500 text-slate-900 font-semibold rounded-r-lg text-xs hover:bg-amber-600">Copy</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-slate-500 uppercase">System Password</label>
+          <div class="flex items-center mt-1">
+            <input type="text" id="ssh-password-box" readonly class="flex-1 p-2 bg-slate-100 dark:bg-slate-900 rounded-l-lg text-xs font-mono">
+            <button onclick="copyToClipboard('ssh-password-box', true)" class="px-3 py-2 bg-slate-300 dark:bg-slate-700 rounded-r-lg text-xs">Copy</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-slate-500 uppercase">Ed25519 Private Key (.pem)</label>
+          <textarea id="ssh-private-key-box" readonly rows="6" class="w-full mt-1 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-lg text-xs font-mono focus:outline-none"></textarea>
+          <div class="flex justify-end mt-2 space-x-2">
+            <button onclick="copyToClipboard('ssh-private-key-box', true)" class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg text-xs font-medium">Copy PEM</button>
+            <button onclick="downloadPrivateKey()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-xs">Download id_ed25519.pem</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create User Modal -->
+  <div id="modal-add-user" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 dark:border-slate-700">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">Create User & Linux OS Account</h3>
+        <button onclick="closeModal('modal-add-user')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <form onsubmit="handleCreateUser(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Username (OS & Panel)</label>
+          <input type="text" id="new-user-name" required placeholder="e.g. devuser" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Password (Leave empty to auto-generate)</label>
+          <input type="password" id="new-user-pass" placeholder="••••••••••••" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Panel Role</label>
+          <select id="new-user-role" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+            <option value="tenant">Tenant (User)</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Linux OS Isolation (Option A)</label>
+          <select id="new-user-shell" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+            <option value="sftp_only">SFTP Only (Web folder chroot / No shell)</option>
+            <option value="standard_shell">Standard Shell (/bin/bash, No Sudo)</option>
+            <option value="sudo_admin">Sudo Admin Access (/bin/bash + sudo)</option>
+          </select>
+        </div>
+        <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm">Provision User</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Proxy Host Modal -->
+  <div id="modal-add-proxy" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 border border-slate-200 dark:border-slate-700">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">New Proxy Host</h3>
+        <button onclick="closeModal('modal-add-proxy')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <form onsubmit="handleCreateProxy(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Domain Names (comma-separated)</label>
+          <input type="text" id="proxy-domains" required placeholder="app.example.com, api.example.com" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Scheme</label>
+            <select id="proxy-scheme" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Forward Host</label>
+            <input type="text" id="proxy-host" required value="127.0.0.1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Forward Port</label>
+            <input type="number" id="proxy-port" required value="3000" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <label class="flex items-center space-x-2 text-xs">
+            <input type="checkbox" id="proxy-caching" class="rounded text-amber-500">
+            <span>Cache Assets</span>
+          </label>
+          <label class="flex items-center space-x-2 text-xs">
+            <input type="checkbox" id="proxy-exploits" checked class="rounded text-amber-500">
+            <span>Block Common Exploits</span>
+          </label>
+          <label class="flex items-center space-x-2 text-xs">
+            <input type="checkbox" id="proxy-websocket" checked class="rounded text-amber-500">
+            <span>Websockets Support</span>
+          </label>
+          <label class="flex items-center space-x-2 text-xs">
+            <input type="checkbox" id="proxy-ssl-force" class="rounded text-amber-500">
+            <span>Force SSL</span>
+          </label>
+        </div>
+
+        <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm">Deploy Proxy Host</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Stream Modal -->
+  <div id="modal-add-stream" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 dark:border-slate-700">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold">New Stream (Layer 4 Forwarding)</h3>
+        <button onclick="closeModal('modal-add-stream')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <form onsubmit="handleCreateStream(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Incoming Server Port</label>
+          <input type="number" id="stream-in-port" required placeholder="3306" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Forward Host</label>
+            <input type="text" id="stream-host" required value="127.0.0.1" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-500 uppercase mb-1">Forward Port</label>
+            <input type="number" id="stream-port" required placeholder="3306" class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm">
+          </div>
+        </div>
+        <div class="flex space-x-4 pt-2 text-xs">
+          <label class="flex items-center space-x-2">
+            <input type="checkbox" id="stream-tcp" checked class="rounded text-amber-500">
+            <span>TCP Forwarding</span>
+          </label>
+          <label class="flex items-center space-x-2">
+            <input type="checkbox" id="stream-udp" class="rounded text-amber-500">
+            <span>UDP Forwarding</span>
+          </label>
+        </div>
+        <button type="submit" class="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm">Deploy Stream</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let TOKEN = localStorage.getItem('bee_token') || null;
+    let CURRENT_USER = null;
+    let ACTIVE_CREDS = null;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      if (TOKEN) {
+        checkAuth();
+      } else {
+        showLogin();
+      }
+    });
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/v2/auth/me', {
+          headers: { 'Authorization': `Bearer ${TOKEN}` }
+        });
+        if (res.ok) {
+          CURRENT_USER = await res.json();
+          showApp();
+        } else {
+          logout();
+        }
+      } catch (e) {
+        logout();
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const u = document.getElementById('login-username').value;
+      const p = document.getElementById('login-password').value;
+      const errBox = document.getElementById('login-error');
+
+      try {
+        const res = await fetch('/api/v2/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          TOKEN = data.token;
+          localStorage.setItem('bee_token', TOKEN);
+          CURRENT_USER = { id: data.user_id, username: data.username, role: data.role };
+          showApp();
+        } else {
+          errBox.textContent = data.message || 'Invalid credentials';
+          errBox.classList.remove('hidden');
+        }
+      } catch (err) {
+        errBox.textContent = 'Server connection failed';
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    function showApp() {
+      document.getElementById('login-section').classList.add('hidden');
+      document.getElementById('app-section').classList.remove('hidden');
+      document.getElementById('nav-tabs').classList.remove('hidden');
+      document.getElementById('logged-user').classList.remove('hidden');
+      document.getElementById('logged-user').classList.add('flex');
+      document.getElementById('user-badge').textContent = CURRENT_USER.username;
+      loadMetrics();
+      loadProxyHosts();
+    }
+
+    function showLogin() {
+      document.getElementById('login-section').classList.remove('hidden');
+      document.getElementById('app-section').classList.add('hidden');
+      document.getElementById('nav-tabs').classList.add('hidden');
+      document.getElementById('logged-user').classList.add('hidden');
+    }
+
+    function logout() {
+      TOKEN = null;
+      localStorage.removeItem('bee_token');
+      showLogin();
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('tab-active'));
+
+      const target = document.getElementById(`tab-${tab}`);
+      if (target) target.classList.remove('hidden');
+
+      const btn = document.querySelector(`[data-tab="${tab}"]`);
+      if (btn) btn.classList.add('tab-active');
+
+      if (tab === 'dashboard') loadMetrics();
+      if (tab === 'proxy-hosts') loadProxyHosts();
+      if (tab === 'redirections') loadRedirections();
+      if (tab === 'streams') loadStreams();
+      if (tab === 'dead-hosts') loadDeadHosts();
+      if (tab === 'access-lists') loadAccessLists();
+      if (tab === 'certificates') loadCertificates();
+      if (tab === 'users') loadUsers();
+    }
+
+    async function loadMetrics() {
+      try {
+        const res = await fetch('/api/v2/metrics', { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+        if (!res.ok) return;
+        const m = await res.json();
+        document.getElementById('host-os-info').textContent = `${m.hostname} • ${m.os_name} • Kernel ${m.kernel_version}`;
+        document.getElementById('metric-cpu').textContent = `${m.cpu_usage_percent.toFixed(1)}%`;
+        document.getElementById('metric-cpu-cores').textContent = `${m.cpu_count} CPU Cores`;
+        document.getElementById('metric-ram').textContent = `${m.memory_usage_percent.toFixed(1)}%`;
+        document.getElementById('metric-ram-used').textContent = `${(m.memory_used_bytes / 1024 / 1024).toFixed(0)} MB / ${(m.memory_total_bytes / 1024 / 1024).toFixed(0)} MB`;
+        document.getElementById('metric-disk').textContent = `${m.disk_usage_percent.toFixed(1)}%`;
+        document.getElementById('metric-disk-used').textContent = `${(m.disk_used_bytes / 1024 / 1024 / 1024).toFixed(1)} GB / ${(m.disk_total_bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
+        document.getElementById('metric-nginx-status').textContent = m.nginx_running ? 'Running' : 'Stopped';
+        document.getElementById('metric-nginx-status').className = m.nginx_running ? 'text-xl font-bold text-emerald-600' : 'text-xl font-bold text-red-600';
+        document.getElementById('metric-nginx-ver').textContent = m.nginx_version || 'Native Host Service';
+      } catch(e) {}
+    }
+
+    async function loadProxyHosts() {
+      try {
+        const res = await fetch('/api/v2/proxy-hosts', { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+        if (!res.ok) return;
+        const hosts = await res.json();
+        const tbody = document.getElementById('proxy-hosts-table');
+        tbody.innerHTML = '';
+        if (hosts.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">No proxy hosts configured yet.</td></tr>';
+          return;
+        }
+        hosts.forEach(h => {
+          const row = document.createElement('tr');
+          row.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50';
+          row.innerHTML = `
+            <td class="px-6 py-4 font-semibold text-slate-900 dark:text-white">${h.domain_names.join(', ')}</td>
+            <td class="px-6 py-4 text-xs font-mono text-slate-600 dark:text-slate-300">${h.forward_scheme}://${h.forward_host}:${h.forward_port}</td>
+            <td class="px-6 py-4"><span class="px-2 py-0.5 text-xs rounded-full ${h.ssl_certificate_id ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}">${h.ssl_certificate_id ? 'SSL Active' : 'No SSL'}</span></td>
+            <td class="px-6 py-4 space-x-1 text-xs">
+              ${h.caching_enabled ? '<span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">Cache</span>' : ''}
+              ${h.block_exploits ? '<span class="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Exploit Block</span>' : ''}
+              ${h.websocket_support ? '<span class="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">WS</span>' : ''}
+            </td>
+            <td class="px-6 py-4 text-right space-x-2">
+              <button onclick="deleteProxyHost(${h.id})" class="text-xs text-red-600 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch(e) {}
+    }
+
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/v2/users', { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+        if (!res.ok) return;
+        const users = await res.json();
+        const tbody = document.getElementById('users-table');
+        tbody.innerHTML = '';
+        users.forEach(u => {
+          const row = document.createElement('tr');
+          row.className = 'hover:bg-slate-50 dark:hover:bg-slate-800/50';
+          row.innerHTML = `
+            <td class="px-6 py-4 font-bold text-slate-900 dark:text-white">${u.username}</td>
+            <td class="px-6 py-4 text-xs"><span class="px-2 py-0.5 rounded-full ${u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}">${u.role}</span></td>
+            <td class="px-6 py-4 text-xs font-mono text-purple-600 dark:text-purple-400">${u.shell_mode}</td>
+            <td class="px-6 py-4 text-xs text-slate-400">${u.created_at.substring(0, 10)}</td>
+            <td class="px-6 py-4 text-right space-x-2">
+              <button onclick="viewUserSsh(${u.id}, '${u.username}')" class="px-2.5 py-1 bg-amber-500/20 text-amber-700 dark:text-amber-300 font-semibold rounded text-xs hover:bg-amber-500/30">
+                <i class="fa-solid fa-key mr-1"></i> View SSH & Key
+              </button>
+              ${u.id !== CURRENT_USER.id ? `<button onclick="deleteUser(${u.id})" class="text-xs text-red-600 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>` : ''}
+            </td>
+          `;
+          tbody.appendChild(row);
+        });
+      } catch(e) {}
+    }
+
+    async function viewUserSsh(userId, username) {
+      try {
+        const res = await fetch(`/api/v2/users/${userId}/credentials`, {
+          headers: { 'Authorization': `Bearer ${TOKEN}` }
+        });
+        if (!res.ok) return;
+        const cred = await res.json();
+        ACTIVE_CREDS = { ...cred, username };
+
+        document.getElementById('ssh-command-box').textContent = `ssh ${username}@${window.location.hostname}`;
+        document.getElementById('ssh-password-box').value = cred.initial_password || '(Secret / Not stored plain)';
+        document.getElementById('ssh-private-key-box').value = cred.private_key_pem;
+
+        openModal('modal-ssh-creds');
+      } catch(e) {}
+    }
+
+    function downloadPrivateKey() {
+      if (!ACTIVE_CREDS) return;
+      const blob = new Blob([ACTIVE_CREDS.private_key_pem], { type: 'application/x-pem-file' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${ACTIVE_CREDS.username}_id_ed25519.pem`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function copyToClipboard(elementId, isInput = false) {
+      const text = isInput ? document.getElementById(elementId).value : document.getElementById(elementId).textContent;
+      navigator.clipboard.writeText(text);
+      alert('Copied to clipboard!');
+    }
+
+    async function handleCreateUser(e) {
+      e.preventDefault();
+      const u = document.getElementById('new-user-name').value;
+      const p = document.getElementById('new-user-pass').value;
+      const role = document.getElementById('new-user-role').value;
+      const shell = document.getElementById('new-user-shell').value;
+
+      try {
+        const res = await fetch('/api/v2/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+          body: JSON.stringify({ username: u, password: p || undefined, role, shell_mode: shell })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          closeModal('modal-add-user');
+          loadUsers();
+          viewUserSsh(data.user.id, data.user.username);
+        } else {
+          alert(data.message || 'Error creating user');
+        }
+      } catch(e) {}
+    }
+
+    async function handleCreateProxy(e) {
+      e.preventDefault();
+      const rawDomains = document.getElementById('proxy-domains').value;
+      const domain_names = rawDomains.split(',').map(s => s.trim()).filter(Boolean);
+      const forward_scheme = document.getElementById('proxy-scheme').value;
+      const forward_host = document.getElementById('proxy-host').value;
+      const forward_port = parseInt(document.getElementById('proxy-port').value);
+      const caching_enabled = document.getElementById('proxy-caching').checked;
+      const block_exploits = document.getElementById('proxy-exploits').checked;
+      const websocket_support = document.getElementById('proxy-websocket').checked;
+      const ssl_forced = document.getElementById('proxy-ssl-force').checked;
+
+      try {
+        const res = await fetch('/api/v2/proxy-hosts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+          body: JSON.stringify({
+            domain_names, forward_scheme, forward_host, forward_port,
+            caching_enabled, block_exploits, websocket_support, ssl_forced
+          })
+        });
+        if (res.ok) {
+          closeModal('modal-add-proxy');
+          loadProxyHosts();
+        } else {
+          const err = await res.json();
+          alert(err.message || 'Failed to deploy proxy host');
+        }
+      } catch(e) {}
+    }
+
+    async function deleteProxyHost(id) {
+      if (!confirm('Are you sure you want to remove this proxy host?')) return;
+      await fetch(`/api/v2/proxy-hosts/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${TOKEN}` }
+      });
+      loadProxyHosts();
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Delete user and revoke credentials?')) return;
+      await fetch(`/api/v2/users/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${TOKEN}` }
+      });
+      loadUsers();
+    }
+
+    function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+    function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+    function toggleDarkMode() {
+      document.documentElement.classList.toggle('dark');
+      const isDark = document.documentElement.classList.contains('dark');
+      document.getElementById('theme-icon').className = isDark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+    }
+  </script>
+</body>
+</html>

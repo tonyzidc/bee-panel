@@ -1,0 +1,21 @@
+# Bee Panel v2 - Access List Configuration: {{ name }}
+# ID: {{ id }}
+
+{% if satisfy_any %}
+satisfy any;
+{% else %}
+satisfy all;
+{% endif %}
+
+{% for ip in allow_ips %}
+allow {{ ip }};
+{% endfor %}
+
+{% for ip in deny_ips %}
+deny {{ ip }};
+{% endfor %}
+
+{% if has_basic_auth %}
+auth_basic "{{ auth_realm | default('Restricted Access') }}";
+auth_basic_user_file /etc/nginx/bee-panel/access/htpasswd_{{ id }};
+{% endif %}

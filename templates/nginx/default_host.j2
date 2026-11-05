@@ -1,0 +1,20 @@
+# Bee Panel v2 - Default Fallback Server (Catch-All)
+# Handles requests to IP directly or unmatched domains
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    # ACME Challenge endpoint
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/lib/bee-panel/acme-challenges;
+        try_files $uri =404;
+    }
+
+    location / {
+        default_type text/html;
+        return 200 '<!DOCTYPE html><html><head><title>Welcome to Bee Panel</title><style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}div{text-align:center;padding:2rem;background:#1e293b;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,0.5);max-width:500px;}h1{color:#eab308;margin-bottom:0.5rem;}p{color:#94a3b8;font-size:0.95rem;line-height:1.5;}</style></head><body><div><h1>🐝 Bee Panel v2</h1><p>Congratulations! Your ultra-lightweight reverse proxy is online.</p><p>This is the default fallback response. Please configure your Proxy Hosts in the Bee Panel Dashboard.</p></div></body></html>\n';
+    }
+}

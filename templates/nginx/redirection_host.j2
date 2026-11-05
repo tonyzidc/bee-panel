@@ -1,0 +1,58 @@
+# Bee Panel v2 - Redirection Host Configuration
+# Domain: {{ domain_names | join(", ") }}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain_names | join(" ") }};
+
+    # ACME Challenge endpoint
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/lib/bee-panel/acme-challenges;
+        try_files $uri =404;
+    }
+
+    location / {
+{% if block_exploits %}
+        if ($query_string ~* "(<|%3C).*script.*(>|%3E)") { return 403; }
+        if ($query_string ~* "base64_(en|de)code[^(]*\(") { return 403; }
+{% endif %}
+{% if preserve_path %}
+        return {{ forward_http_code }} {{ forward_scheme }}://{{ forward_domain }}$request_uri;
+{% else %}
+        return {{ forward_http_code }} {{ forward_scheme }}://{{ forward_domain }}/;
+{% endif %}
+    }
+}
+
+{% if ssl_certificate_id %}
+server {
+    listen 443 ssl{% if http2_support %} http2{% endif %};
+    listen [::]:443 ssl{% if http2_support %} http2{% endif %};
+    server_name {{ domain_names | join(" ") }};
+
+    ssl_certificate {{ ssl_cert_path }};
+    ssl_certificate_key {{ ssl_key_path }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # ACME Challenge endpoint
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/lib/bee-panel/acme-challenges;
+        try_files $uri =404;
+    }
+
+    location / {
+{% if block_exploits %}
+        if ($query_string ~* "(<|%3C).*script.*(>|%3E)") { return 403; }
+        if ($query_string ~* "base64_(en|de)code[^(]*\(") { return 403; }
+{% endif %}
+{% if preserve_path %}
+        return {{ forward_http_code }} {{ forward_scheme }}://{{ forward_domain }}$request_uri;
+{% else %}
+        return {{ forward_http_code }} {{ forward_scheme }}://{{ forward_domain }}/;
+{% endif %}
+    }
+}
+{% endif %}

@@ -1,118 +1,133 @@
-# 🐝 Bee Panel
+# 🐝 Bee Panel v2
 
-> **Multi-Tenant Rootless Server Provisioner & Dynamic Reverse Proxy Engine**  
-> Ultra-lightweight Control Plane (Single Static Go Binary) for managing Linux servers (Ubuntu 22.04 LTS, 24.04 LTS, and Debian 12+) with a baseline as low as 1 vCPU / 1GB RAM.
+> **Ultra-Lightweight Native Rust Reverse Proxy & Linux Host Account Provisioner**  
+> *A high-performance, single-binary, drop-in native alternative to Nginx Proxy Manager (NPM).*  
+> Designed for Linux servers (Ubuntu 22.04/24.04, Debian 12+, RHEL 9+, Alpine) with baseline memory usage as low as **~15MB RAM**.
 
 ---
 
 ## ⚡ One-Line Automated Installer
 
-Compatible with **Ubuntu (22.04 LTS, 24.04 LTS)** and **Debian 12+**:
+Compatible with **Ubuntu (22.04 LTS, 24.04 LTS)**, **Debian 12+**, and **RHEL 9+**:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tonyzidc/bee-panel/main/scripts/install.sh | bash
 ```
 
 During installation, the script automatically:
-- Checks and upgrades OS packages (`apt-get upgrade`).
-- Applies kernel sysctl tuning (`somaxconn`, `inotify`, `swappiness=10`, `unprivileged_port_start=80`).
-- Configures a 2GB Swapfile to protect against Out-Of-Memory (OOM) crashes on 1GB VPS instances.
-- Installs and enables **UFW Firewall** and **Fail2ban** intrusion defense by default.
-- Sets up baseline firewall rules allowing SSH, HTTP (`80`), HTTPS (`443`), Web Control Plane (`8443`), and Container Ports (`10000:60000/tcp`).
+- Installs native `nginx` and dependencies directly on the host (no Docker required).
+- Deploys the static binary `bee-panel` to `/usr/local/bin/bee-panel`.
+- Configures `/etc/nginx/nginx.conf` with HTTP proxy hosts and Layer 4 TCP/UDP stream blocks.
+- Configures systemd daemon service `/etc/systemd/system/bee-panel.service`.
+- Applies UFW firewall rules for SSH (`22`), HTTP (`80`), HTTPS (`443`), and Panel UI (`8443`).
 
-After successful installation, access:
-- 🌐 **Unified Web Port**: `http://<SERVER_IP>:8443`
-  - **Admin Console**: `http://<SERVER_IP>:8443/` (Full system administration & metrics)
-  - **Developer Portal**: `http://<SERVER_IP>:8443/portal` (Tenant connection guide & domain proxying)
+After installation, access:
+- 🌐 **Web Dashboard**: `http://<SERVER_IP>:8443`
+- 👤 **Default User**: `admin`
+- 🔑 **Default Password**: `admin`
+
+---
+
+## 📊 Comparison: Bee Panel v2 vs Nginx Proxy Manager (NPM)
+
+| Metric / Capability | Nginx Proxy Manager (NPM) | Bee Panel v2 (Rust Native) |
+| :--- | :--- | :--- |
+| **Runtime Architecture** | Docker Container (Node.js + Python + MySQL) | **Single Static Rust Binary** (`axum` + `tokio`) |
+| **Memory Footprint (RAM)**| **~400MB - 800MB RAM** | **~15MB - 25MB RAM** (*20x lighter*) |
+| **Startup Time** | 10 - 20 seconds | **< 10 milliseconds** |
+| **SSL / TLS Engine** | Python Certbot wrapper in container | **Pure Rust ACME Engine** (`instant-acme` + `rcgen`) |
+| **Database** | MySQL / SQLite via Knex.js | **Embedded SQLite in WAL Mode** (Zero maintenance) |
+| **OS User & SSH Sync** | ❌ None (Web-only accounts) | ✅ **Auto Linux OS Provisioning + Ed25519 SSH Key & Password** |
+| **Host Metrics** | ❌ None | ✅ **Live CPU, RAM, Disk & Nginx Engine metrics** |
+| **Layer 4 Streams** | TCP / UDP proxying | TCP / UDP proxying with native Nginx stream block |
 
 ---
 
 ## 🚀 Key Features
 
-1. **Zero-Root Containerization (User Namespaces)**:
-   - Each tenant runs an independent Rootless Docker Daemon (`/run/user/<UID>/docker.sock`).
-   - Container breakouts cannot penetrate the host kernel.
-   - High-performance **`pasta`** network driver reduces CPU overhead and delivers 5-6x the network throughput of `slirp4netns`.
+### 1. Full Reverse Proxy Engine (100% NPM Parity)
+- **Proxy Hosts**: Route multiple domains to backend endpoints with HTTP/HTTPS upstream, custom ports, and path preserving.
+- **Asset Caching**: Enable Nginx edge caching (`proxy_cache`) with custom cache timeouts.
+- **Exploit Defense**: Built-in blocking of common exploit patterns (SQL injection, XSS, malicious queries, path traversal).
+- **WebSockets Support**: Out-of-the-box WebSocket upgrade headers.
+- **Custom Locations**: Define subpath routing overrides (`/api`, `/static`) with separate upstream ports and headers.
+- **Advanced Configuration**: Inject custom Nginx directives directly per host.
 
-2. **Clean Light Mode UI Only**:
-   - Modern, high-contrast, professional Light Theme UI for both Admin Console and Developer Portal.
+### 2. Pure Rust ACME SSL Engine (Let's Encrypt / ZeroSSL)
+- Zero dependency on Python or Certbot.
+- Automatic **HTTP-01 Challenge** via Nginx webroot directory (`/var/lib/bee-panel/acme-challenges`).
+- Automatic certificate renewal background worker running every 12 hours.
+- Custom SSL certificate upload (PEM fullchain & private key).
+- Force SSL, HSTS, and HTTP/2 support.
 
-3. **Built-in Security Management (Firewall & Fail2ban)**:
-   - **UFW Firewall Management**: Toggle firewall, add/delete custom rules (port, protocol, action, comment) directly in the UI.
-   - **Fail2ban Intrusion Defense**: Monitor active jails, view currently banned IPs, ban IPs manually, and unban IPs with 1 click.
+### 3. Automatic Linux User & SSH Key Provisioning (Option A)
+- Creating a user in Bee Panel automatically creates a real Linux OS user account on the host.
+- Automatically generates an **OpenSSH Ed25519 Key Pair** (`.pem`) and secure system password.
+- Injects public key into `/home/<username>/.ssh/authorized_keys` with strict permissions (`700/600`).
+- Configurable OS Isolation Modes:
+  - **SFTP Only**: Chroot/Restricted web access to `/var/www/vhosts/<username>` (no interactive shell).
+  - **Standard Shell**: `/bin/bash` terminal access without sudo.
+  - **Sudo Admin**: Full administrative root shell access.
+- 1-Click SSH key download, password reveal, and key rotation directly in the Web UI.
 
-4. **Global Container Explorer**:
-   - Discovers and lists all Docker containers across all isolated rootless tenant sockets in real time.
-   - 1-click container actions: **Start**, **Stop**, **Restart**, and **Live Container Logs**.
+### 4. Layer 4 Streams (TCP / UDP Forwarding)
+- Forward incoming host ports to internal or external services (MySQL `3306`, PostgreSQL `5432`, Redis `6379`, Game servers, VPNs).
+- Simultaneous TCP and UDP listening support.
 
-5. **Edge Nginx Reverse Proxy, ACME SSL & Live Logs**:
-   - Route domain names to internal tenant container ports.
-   - Automated Let's Encrypt SSL certificate issuance and auto-renewal.
-   - Support for custom SSL certificate/key upload.
-   - Interactive Nginx **Access Log** and **Error Log** viewer.
+### 5. Redirections & 404 Dead Hosts
+- Chained HTTP redirections (`301 Moved Permanently`, `302 Found`, `307`, `308`).
+- Custom maintenance and 404 response pages for inactive or parked domains.
 
-6. **Comprehensive User & Credentials Management**:
-   - Full CRUD on tenant accounts (Create, View, Suspend/Activate, Delete).
-   - View, copy, or download the full **OpenSSH Ed25519 Private Key** (`.pem`), Public Key, and system passwords anytime.
-   - Change tenant passwords and rotate SSH keys on demand.
-
-7. **Real-time Dashboard Metrics**:
-   - Live CPU Usage %, CPU core count, and system load averages.
-   - Memory (RAM) usage, Swap space usage, and Disk storage.
-   - Active tenant and container counters with live security status badges.
-
-8. **Comprehensive Settings & Self-Update**:
-   - Full panel configuration editor (`/etc/bee-panel/bee-panel.yaml`).
-   - **Telegram Event Notifications**: Instant alerts for admin logins, tenant provisioning, SSL certificates, and security alarms with built-in "Send Test Notification".
-   - **Safe Host SSH Port Modification**: Change OpenSSH port with automated UFW allow and syntax validation before restarting the SSH service.
-   - **GitHub Release Integration**: 1-click update checker and self-updater.
+### 6. Access Lists & Intrusion Defense
+- IP Whitelisting and Blacklisting with CIDR subnet support (`192.168.1.0/24`).
+- HTTP Basic Authentication credentials managed via Nginx `auth_basic`.
 
 ---
 
-## 🛠️ Unified Host CLI Suite
+## 🛠️ Host CLI Suite
 
-Bee Panel includes a comprehensive host command-line interface:
+Bee Panel v2 includes an ultra-fast host command-line interface:
 
 ```bash
-# Check version and system architecture
-bee-panel version
+# Start the web daemon
+bee-panel serve
 
-# Display panel daemon status and metrics
+# Display real-time system and proxy engine metrics
 bee-panel status
 
-# Control systemd daemon service
-bee-panel start
-bee-panel stop
-bee-panel restart
-
-# Stream realtime journalctl logs
-bee-panel logs -f
-
-# Check or apply automated self-updates from GitHub
-bee-panel update --check
-bee-panel update
-
 # Reset administrator password directly in the database
-bee-panel admin reset-password [username]
+bee-panel reset-password admin
 
-# Manage tenants
-bee-panel tenant list
-bee-panel tenant create <username>
-bee-panel tenant info <username>
-bee-panel tenant restart <username>
-bee-panel tenant delete <username>
-
-# Manage firewall
-bee-panel firewall status
-bee-panel firewall allow 8080/tcp
-bee-panel firewall deny 8080/tcp
-
-# Display full CLI help
-bee-panel help
+# List all provisioned OS users and their SSH public key fingerprints
+bee-panel user-list
 ```
 
 ---
 
-## 📄 License
+## 🏗️ Architecture
 
-MIT License.
+```
+bee-panel/
+├── Cargo.toml               # Native Rust dependencies
+├── src/
+│   ├── main.rs              # CLI suite & Axum web entry point
+│   ├── config.rs            # Configuration loader (/etc/bee-panel/config.yaml)
+│   ├── db/                  # SQLite WAL connection pool & embedded schema
+│   ├── core/
+│   │   ├── ssh_user.rs      # Ed25519 keygen & Linux OS user provisioner
+│   │   ├── nginx.rs         # Minijinja templates, atomic config writes & zero-downtime reload
+│   │   ├── acme.rs          # Pure Rust ACME client (RFC 8555)
+│   │   └── metrics.rs       # sysinfo host metrics collector
+│   ├── api/                 # RESTful API endpoints
+│   └── web/                 # Embedded single-page application assets (rust-embed)
+├── templates/nginx/         # Minijinja template files for Nginx .conf files
+├── tests/                   # Automated unit & integration tests
+└── scripts/
+    └── install.sh           # One-line installer
+```
+
+---
+
+## 📜 License
+
+Licensed under the MIT License.

@@ -1,0 +1,42 @@
+# Bee Panel v2 - Dead Host / Custom 404 Configuration
+# Domain: {{ domain_names | join(", ") }}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain_names | join(" ") }};
+
+    # ACME Challenge endpoint
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/lib/bee-panel/acme-challenges;
+        try_files $uri =404;
+    }
+
+    location / {
+        return {{ status_code | default(404) }} "{{ custom_message | default('Host Disabled / 404 Not Found') }}\n";
+    }
+}
+
+{% if ssl_certificate_id %}
+server {
+    listen 443 ssl{% if http2_support %} http2{% endif %};
+    listen [::]:443 ssl{% if http2_support %} http2{% endif %};
+    server_name {{ domain_names | join(" ") }};
+
+    ssl_certificate {{ ssl_cert_path }};
+    ssl_certificate_key {{ ssl_key_path }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # ACME Challenge endpoint
+    location ^~ /.well-known/acme-challenge/ {
+        default_type "text/plain";
+        root /var/lib/bee-panel/acme-challenges;
+        try_files $uri =404;
+    }
+
+    location / {
+        return {{ status_code | default(404) }} "{{ custom_message | default('Host Disabled / 404 Not Found') }}\n";
+    }
+}
+{% endif %}

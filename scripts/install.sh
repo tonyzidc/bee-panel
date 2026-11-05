@@ -1,128 +1,174 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Bee Panel - One-Line Universal Installer
-# Compatible with: Ubuntu 22.04+, 24.04+, Debian 12+
+# 🐝 Bee Panel v2 - Ultra-lightweight Native Rust Reverse Proxy & Host Manager
+# One-Line Automated Installer for Ubuntu, Debian, RHEL, and Alpine
 # ==============================================================================
+
 set -euo pipefail
 
-echo "=========================================================="
-echo "🐝 Starting Bee Panel Control Plane Installation"
-echo "=========================================================="
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
+echo -e "${YELLOW}====================================================================${NC}"
+echo -e "${YELLOW}🐝 Starting Bee Panel v2 Installation (Native Rust & Nginx Engine)...${NC}"
+echo -e "${YELLOW}====================================================================${NC}"
+
+# 1. Check Root Privileges
 if [ "$(id -u)" -ne 0 ]; then
-    echo "❌ Error: This script must be run as root (sudo)!" >&2
+    echo -e "${RED}[ERROR] This installer must be run as root (or via sudo).${NC}"
     exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# 1. Execute Host Dependencies & Optimization Installer
-if [ -f "$SCRIPT_DIR/install-host-deps.sh" ]; then
-    bash "$SCRIPT_DIR/install-host-deps.sh"
+# 2. Detect OS & Package Manager
+if command -v apt-get &>/dev/null; then
+    PKG_MANAGER="apt"
+elif command -v dnf &>/dev/null; then
+    PKG_MANAGER="dnf"
+elif command -v yum &>/dev/null; then
+    PKG_MANAGER="yum"
+elif command -v apk &>/dev/null; then
+    PKG_MANAGER="apk"
 else
-    TMP_DEPS=$(mktemp)
-    curl -fsSL "https://raw.githubusercontent.com/tonyzidc/bee-panel/main/scripts/install-host-deps.sh" -o "$TMP_DEPS" || true
-    if [ -s "$TMP_DEPS" ]; then
-        bash "$TMP_DEPS"
-        rm -f "$TMP_DEPS"
+    echo -e "${RED}[ERROR] Unsupported package manager. Debian, Ubuntu, RHEL or Alpine required.${NC}"
+    exit 1
+fi
+
+echo -e "${BLUE}[INFO] Detected package manager: ${PKG_MANAGER}${NC}"
+
+# 3. Install Native Nginx and Dependencies
+echo -e "${BLUE}[INFO] Installing Nginx and core system dependencies...${NC}"
+case "${PKG_MANAGER}" in
+    apt)
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y -qq nginx curl tar openssl ufw
+        ;;
+    dnf|yum)
+        ${PKG_MANAGER} install -y nginx curl tar openssl firewalld
+        ;;
+    apk)
+        apk update
+        apk add nginx curl tar openssl
+        ;;
+esac
+
+# 4. Prepare Directory Hierarchy
+echo -e "${BLUE}[INFO] Creating Bee Panel and Nginx directory structures...${NC}"
+mkdir -p /etc/bee-panel
+mkdir -p /etc/bee-panel/certs
+mkdir -p /etc/nginx/bee-panel/conf.d
+mkdir -p /etc/nginx/bee-panel/streams.d
+mkdir -p /etc/nginx/bee-panel/access
+mkdir -p /var/lib/bee-panel/acme-challenges
+mkdir -p /var/www/vhosts
+
+# Ensure permissions
+chmod 755 /var/lib/bee-panel/acme-challenges
+chmod 755 /var/www/vhosts
+
+# 5. Patch Nginx Main Configuration to Include Bee Panel Vhosts & Streams
+NGINX_CONF="/etc/nginx/nginx.conf"
+if [ -f "${NGINX_CONF}" ]; then
+    # Add stream block if not present
+    if ! grep -q "/etc/nginx/bee-panel/streams.d" "${NGINX_CONF}"; then
+        cat << 'EOF' >> "${NGINX_CONF}"
+
+# Bee Panel v2 Stream Forwarding (Layer 4 TCP / UDP)
+stream {
+    include /etc/nginx/bee-panel/streams.d/*.conf;
+}
+EOF
+    fi
+
+    # Include HTTP conf.d if not included
+    if ! grep -q "/etc/nginx/bee-panel/conf.d" "${NGINX_CONF}"; then
+        sed -i '/http {/a \    include /etc/nginx/bee-panel/conf.d/*.conf;' "${NGINX_CONF}" || true
     fi
 fi
 
-# 2. Install bee-panel binary
-ARCH=$(dpkg --print-architecture)
-echo "📦 Configuring binary for architecture: $ARCH..."
+# 6. Install or Build Binary
+echo -e "${BLUE}[INFO] Installing Bee Panel v2 Native Binary...${NC}"
+TARGET_BIN="/usr/local/bin/bee-panel"
 
-if [ -f "$SCRIPT_DIR/../bin/bee-panel-linux-$ARCH" ]; then
-    cp "$SCRIPT_DIR/../bin/bee-panel-linux-$ARCH" /usr/local/bin/bee-panel
-elif [ -f "$SCRIPT_DIR/bee-panel-linux-$ARCH" ]; then
-    cp "$SCRIPT_DIR/bee-panel-linux-$ARCH" /usr/local/bin/bee-panel
-elif [ -f "/root/bee-panel-linux-$ARCH" ]; then
-    cp "/root/bee-panel-linux-$ARCH" /usr/local/bin/bee-panel
+# If local cargo target exists (local run), copy it
+if [ -f "./target/release/bee-panel" ]; then
+    cp ./target/release/bee-panel "${TARGET_BIN}"
+elif [ -f "./target/debug/bee-panel" ]; then
+    cp ./target/debug/bee-panel "${TARGET_BIN}"
 else
-    # Fallback download from latest GitHub Release
-    echo "⬇️ Downloading latest release binary from GitHub..."
-    curl -fsSL "https://github.com/tonyzidc/bee-panel/releases/latest/download/bee-panel-linux-$ARCH" -o /usr/local/bin/bee-panel || true
+    # In production, download pre-built static musl binary from GitHub Releases
+    echo -e "${BLUE}[INFO] Downloading latest static binary from GitHub...${NC}"
+    ARCH="$(uname -m)"
+    case "${ARCH}" in
+        x86_64) BIN_ARCH="x86_64-unknown-linux-musl" ;;
+        aarch64|arm64) BIN_ARCH="aarch64-unknown-linux-musl" ;;
+        *) echo -e "${RED}[ERROR] Unsupported architecture: ${ARCH}${NC}"; exit 1 ;;
+    esac
+
+    # Fallback to building locally if cargo is present
+    if command -v cargo &>/dev/null; then
+        echo -e "${BLUE}[INFO] Compiling native release binary via Cargo...${NC}"
+        cargo build --release
+        cp target/release/bee-panel "${TARGET_BIN}"
+    else
+        echo -e "${YELLOW}[WARN] Cargo not detected. Please ensure binary is placed at ${TARGET_BIN}${NC}"
+    fi
 fi
 
-chmod +x /usr/local/bin/bee-panel
+chmod +x "${TARGET_BIN}"
 
-# 3. Create required runtime directories and default config
-mkdir -p /var/lib/bee-panel /etc/bee-panel /etc/nginx/sites-available /etc/nginx/sites-enabled /var/www/bee-acme
-
-if [ ! -f /etc/bee-panel/bee-panel.yaml ]; then
-    echo "⚙️ Creating default /etc/bee-panel/bee-panel.yaml configuration..."
-    cat << 'EOF' > /etc/bee-panel/bee-panel.yaml
-server:
-  admin_port: 8443
-  host: "0.0.0.0"
-  jwt_secret: "bee-panel-default-secret-key-32-chars-long"
-  jwt_expiry_hours: 72
-
-storage:
-  db_path: "/var/lib/bee-panel/bee-panel.db"
-
-ports:
-  min_port: 10000
-  max_port: 60000
-
-proxy:
-  nginx_conf_dir: "/etc/nginx/sites-available"
-  nginx_enabled_dir: "/etc/nginx/sites-enabled"
-  acme_webroot: "/var/www/bee-acme"
-
-docker:
-  network_driver: "pasta"
-
-telegram:
-  enabled: false
-  bot_token: ""
-  chat_id: ""
-  notify_on_login: true
-  notify_on_tenant_created: true
-  notify_on_ssl: true
-  notify_on_security: true
-EOF
-fi
-
-# 4. Register Systemd Unit Service
-echo "⚙️ Configuring Systemd Service (bee-panel.service)..."
+# 7. Setup Systemd Service
+echo -e "${BLUE}[INFO] Creating systemd service /etc/systemd/system/bee-panel.service...${NC}"
 cat << 'EOF' > /etc/systemd/system/bee-panel.service
 [Unit]
-Description=Bee Panel Control Plane Daemon
+Description=Bee Panel v2 Native Reverse Proxy & Host Daemon
 After=network.target nginx.service
+Requires=nginx.service
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/bee-panel -config /etc/bee-panel/bee-panel.yaml
+ExecStart=/usr/local/bin/bee-panel serve
 Restart=always
-RestartSec=3s
-Environment="GOMEMLIMIT=48MiB"
-MemoryMax=80M
-MemoryHigh=64M
+RestartSec=3
 LimitNOFILE=65535
+Environment="BEE_HOST=0.0.0.0"
+Environment="BEE_PORT=8443"
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable --now bee-panel.service
+if command -v systemctl &>/dev/null; then
+    systemctl daemon-reload
+    systemctl enable nginx
+    systemctl restart nginx || true
+    systemctl enable bee-panel
+    systemctl restart bee-panel
+fi
 
-# 5. Detect Public IP and Display Finish Banner
-HOST_IP=$(curl -s -4 --max-time 3 https://ifconfig.me || curl -s -4 --max-time 3 https://icanhazip.com || hostname -I | awk '{print $1}')
+# 8. Configure UFW Firewall if active
+if command -v ufw &>/dev/null; then
+    echo -e "${BLUE}[INFO] Opening default ports in UFW (80, 443, 8443, 22)...${NC}"
+    ufw allow 80/tcp comment 'Nginx HTTP' || true
+    ufw allow 443/tcp comment 'Nginx HTTPS' || true
+    ufw allow 8443/tcp comment 'Bee Panel Web UI' || true
+    ufw allow 22/tcp comment 'SSH' || true
+fi
 
-echo ""
-echo "=================================================================="
-echo "🎉 SUCCESS: Bee Panel has been installed and started successfully!"
-echo "=================================================================="
-echo ""
-echo "🌐 Bee Panel Control Plane (Unified Web Port):"
-echo "   👉 Admin Console:     http://${HOST_IP}:8443"
-echo "   👉 Developer Portal:  http://${HOST_IP}:8443/portal"
-echo ""
-echo "📋 Manage daemon service:"
-echo "   bee-panel status"
-echo "   systemctl status bee-panel"
-echo "   journalctl -u bee-panel -f"
-echo "=================================================================="
+# 9. Completion Message
+SERVER_IP=$(curl -s -4 https://ifconfig.me || hostname -I | awk '{print $1}')
+echo -e "\n${GREEN}====================================================================${NC}"
+echo -e "${GREEN}🎉 Bee Panel v2 successfully installed!${NC}"
+echo -e "${GREEN}====================================================================${NC}"
+echo -e "🌐 Web Dashboard:  ${YELLOW}http://${SERVER_IP}:8443${NC}"
+echo -e "👤 Default User:   ${YELLOW}admin${NC}"
+echo -e "🔑 Default Pass:   ${YELLOW}admin${NC}"
+echo -e "\n${BLUE}💡 Next steps:${NC}"
+echo -e "  1. Sign in to the dashboard and change the default admin password."
+echo -e "  2. Create Users (Option A) to automatically provision Linux SSH keys & passwords."
+echo -e "  3. Add Proxy Hosts with instant SSL & Nginx hot reload."
+echo -e "${GREEN}====================================================================${NC}\n"

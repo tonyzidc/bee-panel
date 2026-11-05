@@ -1,0 +1,12 @@
+# Bee Panel v2 - Layer 4 Stream Configuration (TCP / UDP)
+# Stream Port: {{ incoming_port }} -> {{ forward_host }}:{{ forward_port }}
+
+server {
+    listen {{ incoming_port }}{% if udp_forwarding %} udp{% endif %};
+{% if tcp_forwarding and udp_forwarding %}
+    listen {{ incoming_port }};
+{% endif %}
+    proxy_pass {{ forward_host }}:{{ forward_port }};
+    proxy_connect_timeout 5s;
+    proxy_timeout 1h;
+}
